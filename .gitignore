@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Состояния (генерируются при работе)
+saved_states/
+backend/saved_states/
+export.json
+
+# Окружения
+.env
+.env.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.log

@@ -1,0 +1,12 @@
+[
+  {"id": "signal_1", "name": "Скорость подъёма", "type": "float", "writable": true, "default": 3.5},
+  {"id": "signal_2", "name": "Температура двигателя", "type": "float", "writable": false, "default": 78.2},
+  {"id": "signal_3", "name": "Масса груза", "type": "float", "writable": true, "default": 1250.0},
+  {"id": "signal_4", "name": "Уровень масла", "type": "float", "writable": true, "default": 64.4},
+  {"id": "signal_5", "name": "Режим работы", "type": "int", "writable": true, "default": 1},
+  {"id": "signal_6", "name": "Аварийный стоп", "type": "bool", "writable": true, "default": false},
+  {"id": "signal_7", "name": "Датчик перегруза", "type": "bool", "writable": false, "default": false},
+  {"id": "signal_8", "name": "Заданная скорость", "type": "float", "writable": true, "default": 2.0},
+  {"id": "signal_9", "name": "Положение клети", "type": "int", "writable": false, "default": 120},
+  {"id": "signal_10", "name": "Состояние тормоза", "type": "bool", "writable": true, "default": true}
+]

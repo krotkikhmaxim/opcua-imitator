@@ -1,0 +1,78 @@
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+
+.app-header {
+  margin-bottom: 20px;
+}
+
+.app-header h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+}
+
+.app-subtitle {
+  margin: 0;
+  color: #6b7280;
+}
+
+.signals-panel {
+  margin-top: 24px;
+}
+
+.signals-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.signals-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.signals-updated {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.signals-table-wrap {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.signals-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.signals-table th,
+.signals-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.signals-table thead th {
+  background: #f9fafb;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+
+.signals-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.mono {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+}
