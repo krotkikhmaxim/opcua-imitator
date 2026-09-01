@@ -1,7 +1,10 @@
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+os.environ["OPC_UA_MODE"] = "imitator"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +21,7 @@ import tempfile
 @pytest.fixture()
 def client(tmp_path):
     settings.SAVED_STATES_DIR = str(tmp_path / "saved_states")
-    cache = SignalCache(load_signal_config("configs/signals.json"))
+    cache = SignalCache(load_signal_config())
     bus = OPCSignalBus(cache, mode=OPCMode.IMITATOR)
     storage = StateStorage(settings.SAVED_STATES_DIR)
     set_services(bus, storage)
@@ -87,7 +90,7 @@ def test_import(client):
     data = {
         "name": "imported",
         "description": "test",
-        "signals": {"signal_1": 9.9, "signal_6": True},
+        "signals": {"ch1-10a3-sq1": True, "profibus-motor-speed": 42},
     }
     r = client.post(
         "/api/states/import",
@@ -105,3 +108,85 @@ def test_import_invalid(client):
         files={"file": ("s.json", b"not json", "application/json")},
     )
     assert r.status_code == 400
+
+
+def test_signals_list_has_new_signals(client):
+    r = client.get("/api/signals")
+    assert r.status_code == 200
+    signals = r.json()["signals"]
+    assert len(signals) == 101
+    sig = signals["ch1-10a3-sq1"]
+    assert sig["project_tag"] == (
+        "Chanel1.Application.GVL.GlobalInOutSignal.x10A3DigitalInput.SQ1_SinhLeftTop"
+    )
+    assert sig["address"] == sig["project_tag"]
+    assert sig["type"] == "Boolean"
+    assert sig["channel"] in ("Chanel1", "Chanel2")
+
+
+def test_write_signal(client):
+    sig_id = "ch1-10a3-sq1"
+    r = client.post("/api/signals/write", json={"id": sig_id, "value": True})
+    assert r.status_code == 200
+    assert r.json()["value"] is True
+
+    signals = client.get("/api/signals").json()["signals"]
+    assert signals[sig_id]["value"] is True
+
+
+def test_write_int_signal(client):
+    sig_id = "ch1-10a3-sq1"
+    r = client.post("/api/signals/write", json={"id": sig_id, "value": "1"})
+    assert r.status_code == 200
+    assert r.json()["value"] is True
+
+
+def test_write_unknown_signal(client):
+    r = client.post("/api/signals/write", json={"id": "nope", "value": 1})
+    assert r.status_code == 404
+
+
+def test_write_invalid_value(client):
+    sig_id = "profibus-motor-speed"
+    r = client.post("/api/signals/write", json={"id": sig_id, "value": "abc"})
+    assert r.status_code == 400
+
+
+def test_write_int16_range(client):
+    sig_id = "profibus-motor-speed"  # Int16
+    r = client.post("/api/signals/write", json={"id": sig_id, "value": 40000})
+    assert r.status_code == 400
+
+
+def test_write_uint16_range(client):
+    sig_id = "profibus-inv-status-word"  # UInt16
+    r = client.post("/api/signals/write", json={"id": sig_id, "value": -1})
+    assert r.status_code == 400
+    r = client.post("/api/signals/write", json={"id": sig_id, "value": 65535})
+    assert r.status_code == 200
+
+
+def test_write_batch(client):
+    a = "ch1-10a3-sq1"
+    b = "profibus-motor-speed"
+    r = client.post("/api/signals/write_batch", json={"values": {a: True, b: 1200}})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert set(body["applied"]) == {a, b}
+    assert body["errors"] == []
+
+    signals = client.get("/api/signals").json()["signals"]
+    assert signals[a]["value"] is True
+    assert signals[b]["value"] == 1200
+
+
+def test_write_batch_partial_errors(client):
+    r = client.post(
+        "/api/signals/write_batch",
+        json={"values": {"unknown_sig": 1, "profibus-motor-speed": "abc"}},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["applied"] == []
+    assert len(body["errors"]) == 2

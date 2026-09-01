@@ -1,0 +1,73 @@
+{
+  "schema_version": "telemetry.bindings.v1",
+  "items": [
+    {
+      "id": "b-motor-speed",
+      "project_id": "Chanel_1",
+      "opcua_connection_id": "plc",
+      "opcua_node_id": "ns=2;s=ProfibusData.MotorSpeed",
+      "opcua_browse_path": "ProfibusData/MotorSpeed",
+      "opcua_display_name": "Скорость двигателя",
+      "opcua_data_type": "Int32",
+      "project_tag_id": "Chanel_1.Application.GVL.Drive_GVL.ACC1_int",
+      "project_tag_name": "ACC1_int",
+      "enabled": true,
+      "sampling_interval_ms": 1000,
+      "deadband": null,
+      "transform_expression": "",
+      "created_at": "2026-08-30T08:17:02.299971Z",
+      "updated_at": "2026-08-30T08:17:02.299971Z"
+    },
+    {
+      "id": "b-spd-loop-int",
+      "project_id": "Chanel_1",
+      "opcua_connection_id": "plc",
+      "opcua_node_id": "ns=2;s=ProfibusData.SpdLoopIntSet",
+      "opcua_browse_path": "ProfibusData/SpdLoopIntSet",
+      "opcua_display_name": "Задание интегральной части контура скорости",
+      "opcua_data_type": "Int32",
+      "project_tag_id": "Chanel_1.Application.GVL.Drive_GVL.SpdLoopIntSet",
+      "project_tag_name": "SpdLoopIntSet",
+      "enabled": true,
+      "sampling_interval_ms": 1000,
+      "deadband": null,
+      "transform_expression": "",
+      "created_at": "2026-08-30T08:17:02.299971Z",
+      "updated_at": "2026-08-30T08:17:02.299971Z"
+    },
+    {
+      "id": "b-max-torque",
+      "project_id": "Chanel_1",
+      "opcua_connection_id": "plc",
+      "opcua_node_id": "ns=2;s=ProfibusData.MaxTorqueSet1",
+      "opcua_browse_path": "ProfibusData/MaxTorqueSet1",
+      "opcua_display_name": "Задание максимального момента 1",
+      "opcua_data_type": "Int32",
+      "project_tag_id": "Chanel_1.Application.GVL.Drive_GVL.MaxTorqueSet",
+      "project_tag_name": "MaxTorqueSet",
+      "enabled": true,
+      "sampling_interval_ms": 1000,
+      "deadband": null,
+      "transform_expression": "",
+      "created_at": "2026-08-30T08:17:02.299971Z",
+      "updated_at": "2026-08-30T08:17:02.299971Z"
+    },
+    {
+      "id": "b-min-torque",
+      "project_id": "Chanel_1",
+      "opcua_connection_id": "plc",
+      "opcua_node_id": "ns=2;s=ProfibusData.MinTorqueSet2",
+      "opcua_browse_path": "ProfibusData/MinTorqueSet2",
+      "opcua_display_name": "Задание минимального момента 2",
+      "opcua_data_type": "Int32",
+      "project_tag_id": "Chanel_1.Application.GVL.Drive_GVL.MinTorqueSet",
+      "project_tag_name": "MinTorqueSet",
+      "enabled": true,
+      "sampling_interval_ms": 1000,
+      "deadband": null,
+      "transform_expression": "",
+      "created_at": "2026-08-30T08:17:02.299971Z",
+      "updated_at": "2026-08-30T08:17:02.299971Z"
+    }
+  ]
+}

@@ -8,6 +8,41 @@
   margin-bottom: 20px;
 }
 
+.app-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heartbeat-toggle {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.heartbeat-toggle:hover:not(:disabled) {
+  border-color: #9ca3af;
+}
+
+.heartbeat-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.heartbeat-toggle-on {
+  background: #ecfdf5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
 .app-header h1 {
   margin: 0 0 4px;
   font-size: 24px;
@@ -32,6 +67,129 @@
 .signals-head h2 {
   margin: 0;
   font-size: 16px;
+}
+
+.signals-filter {
+  margin-left: auto;
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  width: 280px;
+  max-width: 40vw;
+}
+
+.signals-count {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.signals-status {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.signals-status-ok {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.signals-status-err {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.signals-applybar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.signals-changed {
+  font-size: 13px;
+  color: #374151;
+}
+
+.signals-apply {
+  margin-left: auto;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.signals-apply:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.signals-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.signals-cancel {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #374151;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.signals-cancel:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.signals-cancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.signals-row-changed td {
+  background: #eff6ff;
+}
+
+.signals-row-changed:hover td {
+  background: #dbeafe;
+}
+
+.signals-group {
+  margin-bottom: 20px;
+}
+
+.signals-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+
+.signals-group-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.signals-current {
+  color: #9ca3af;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .signals-updated {
@@ -70,6 +228,82 @@
 
 .signals-table tbody tr:hover {
   background: #f9fafb;
+}
+
+.signals-cell-cab {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.signals-name {
+  font-weight: 500;
+}
+
+.signals-tag {
+  color: #6b7280;
+  font-size: 12px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signals-bool {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.signals-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.signals-editor input[type='number'],
+.signals-editor input[type='text'] {
+  width: 110px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+
+.signals-editor input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.signals-set {
+  padding: 5px 10px;
+  font-size: 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.signals-set:hover {
+  background: #e5e7eb;
+}
+
+.signals-set:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.signals-err {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.signals-empty {
+  text-align: center;
+  color: #6b7280;
+  padding: 24px;
 }
 
 .mono {

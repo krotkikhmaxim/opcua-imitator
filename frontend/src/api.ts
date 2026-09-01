@@ -1,9 +1,16 @@
 import axios from 'axios'
-import { ImportResponse, LoadResponse, SaveResponse, StateInfo } from './types'
+import { HeartbeatResponse, ImportResponse, LoadResponse, SaveResponse, StateInfo, WriteBatchResponse, WriteResponse } from './types'
 
 const api = axios.create({
   baseURL: '/api',
 })
+
+export const signalsApi = {
+  write: (id: string, value: boolean | number | string) =>
+    api.post<WriteResponse>('/signals/write', { id, value }).then((r) => r.data),
+  writeBatch: (values: Record<string, boolean | number | string>) =>
+    api.post<WriteBatchResponse>('/signals/write_batch', { values }).then((r) => r.data),
+}
 
 export const statesApi = {
   list: () => api.get<StateInfo[]>('/states/list').then((r) => r.data),
@@ -26,4 +33,10 @@ export const statesApi = {
       })
       .then((r) => r.data)
   },
+}
+
+export const heartbeatApi = {
+  get: () => api.get<HeartbeatResponse>('/heartbeat').then((r) => r.data),
+  set: (enabled: boolean) =>
+    api.put<HeartbeatResponse>('/heartbeat', { enabled }).then((r) => r.data),
 }
