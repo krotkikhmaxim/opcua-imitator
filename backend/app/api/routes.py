@@ -5,6 +5,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.api.scenario_routes import ensure_manual_writes_allowed
 from app.config import settings
 from app.services.storage import StateFileError, StateStorage
 from app.services.ws import manager
@@ -65,6 +66,7 @@ async def save_state(req: SaveRequest) -> Dict[str, Any]:
 
 @router.post("/load")
 async def load_state(req: LoadRequest) -> Dict[str, Any]:
+    ensure_manual_writes_allowed()
     try:
         data = _holder.storage.read(req.filename)
     except StateFileError as e:

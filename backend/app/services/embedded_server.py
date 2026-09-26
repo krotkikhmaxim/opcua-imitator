@@ -6,6 +6,7 @@
 внешний клиент может привязаться по ``ns=<idx>;s=<signal_id>``.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -41,6 +42,10 @@ class EmbeddedOpcUaServer:
         self._nodes: Dict[str, Any] = {}
         self._types: Dict[str, ua.VariantType] = {}
         self._started = False
+        # Один замок на все записи в адресное пространство. touch() читает
+        # значение и пишет его обратно двумя await; без замка сценарий может
+        # записать новое значение между ними, и heartbeat вернёт старое.
+        self._write_lock = asyncio.Lock()
         # The index of the imitator namespace, resolved at start(); the station
         # binds nodes as ``ns=2;s=...`` and this must match that index.
         self.namespace_index: int = 0
@@ -125,7 +130,31 @@ class EmbeddedOpcUaServer:
         if node is None:
             return False
         try:
-            await node.write_value(value, varianttype=self._types.get(signal_id))
+            async with self._write_lock:
+                await node.write_value(value, varianttype=self._types.get(signal_id))
+            return True
+        except Exception:
+            logger.warning("failed to write %s", signal_id, exc_info=True)
+            return False
+
+    async def write_value_at(self, signal_id: str, value: Any, when: datetime) -> bool:
+        """Записать значение с заданной SourceTimestamp и StatusCode=Good.
+
+        Сценарии пишут момент события, а не момент записи: порядок и интервалы
+        между изменениями — то, что потребитель должен увидеть в истории.
+        """
+        node = self._nodes.get(signal_id)
+        if node is None:
+            return False
+        try:
+            dv = ua.DataValue(
+                ua.Variant(value, self._types.get(signal_id)),
+                ua.StatusCode(ua.StatusCodes.Good),
+                SourceTimestamp=when,
+                ServerTimestamp=when,
+            )
+            async with self._write_lock:
+                await node.write_value(dv)
             return True
         except Exception:
             logger.warning("failed to write %s", signal_id, exc_info=True)
@@ -143,16 +172,17 @@ class EmbeddedOpcUaServer:
         if node is None:
             return False
         try:
-            current = await node.read_data_value()
-            vtype = current.Value.VariantType
-            if vtype in (None, ua.VariantType.Null):
-                vtype = self._types.get(signal_id)
-            dv = ua.DataValue(
-                ua.Variant(current.Value.Value, vtype),
-                ua.StatusCode(ua.StatusCodes.Good),
-                when or datetime.now(timezone.utc),
-            )
-            await node.write_value(dv)
+            async with self._write_lock:
+                current = await node.read_data_value()
+                vtype = current.Value.VariantType
+                if vtype in (None, ua.VariantType.Null):
+                    vtype = self._types.get(signal_id)
+                dv = ua.DataValue(
+                    ua.Variant(current.Value.Value, vtype),
+                    ua.StatusCode(ua.StatusCodes.Good),
+                    when or datetime.now(timezone.utc),
+                )
+                await node.write_value(dv)
             return True
         except Exception:
             logger.warning("failed to touch %s", signal_id, exc_info=True)
