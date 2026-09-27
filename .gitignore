@@ -16,6 +16,8 @@ frontend/vite.config.d.ts
 saved_states/
 backend/saved_states/
 export.json
+scenario_runs/
+backend/scenario_runs/
 
 # Окружения
 .env

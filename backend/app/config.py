@@ -12,6 +12,8 @@ class Settings:
         "SIGNAL_CONFIG_PATH",
         str(Path(__file__).resolve().parent.parent.parent / "docs" / "opcua_input_bindings.json"),
     )
+    # Журнал правды сценариев (JSONL): что случилось и какой ответ эталонный.
+    SCENARIO_JOURNAL_PATH: str = os.getenv("SCENARIO_JOURNAL_PATH", "scenario_runs/journal.jsonl")
     TIME_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_VERSION: str = "1.0"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024

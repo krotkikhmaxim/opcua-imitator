@@ -9,9 +9,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.api.routes import router, set_services
+from app.api.scenario_routes import (
+    ensure_manual_writes_allowed,
+    get_scenario_engine,
+    router as scenario_router,
+    set_scenario_engine,
+)
 from app.config import load_signal_config, settings
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
+from app.services.scenario import ScenarioEngine
 from app.services.signal_cache import SignalCache
 from app.services.storage import StateStorage
 from app.services.ws import manager
@@ -39,6 +46,17 @@ _heartbeat: Optional[HeartbeatService] = None
 
 set_services(_bus, _storage)
 app.include_router(router)
+# Сценарии пишут через ту же шину; в режиме real движок недоступен — запись
+# ушла бы во внешний сервер, то есть в настоящий ПЛК.
+set_scenario_engine(
+    ScenarioEngine(
+        _bus.write_value_at,
+        _cache.config,
+        simulated=_bus.simulated,
+        journal_path=Path(settings.SCENARIO_JOURNAL_PATH),
+    )
+)
+app.include_router(scenario_router)
 
 
 @app.on_event("startup")
@@ -55,6 +73,9 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    engine = get_scenario_engine()
+    if engine is not None:
+        await engine.stop()
     if _heartbeat is not None:
         await _heartbeat.stop()
     await _bus.close()
@@ -132,6 +153,7 @@ def _coerce_value(cfg: dict, value: Any) -> Any:
 
 @app.post("/api/signals/write")
 async def write_signal(req: WriteSignalRequest) -> dict:
+    ensure_manual_writes_allowed()
     cfg = _cache.get_config(req.id)
     if cfg is None:
         raise HTTPException(status_code=404, detail=f"Сигнал {req.id} не найден")
@@ -148,6 +170,7 @@ async def write_signal(req: WriteSignalRequest) -> dict:
 
 @app.post("/api/signals/write_batch")
 async def write_batch(req: WriteBatchRequest) -> dict:
+    ensure_manual_writes_allowed()
     errors: list[str] = []
     applied: list[str] = []
     for signal_id, value in req.values.items():

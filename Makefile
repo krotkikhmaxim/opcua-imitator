@@ -20,13 +20,22 @@ VENV    := backend/.venv
 UVICORN := $(VENV)/bin/uvicorn
 API     := http://127.0.0.1:$(PORT)
 
-.PHONY: help venv run heartbeat check test frontend frontend-build
+# Сценарии: KINDS — через запятую (пусто — все), SEED — повторяемый прогон,
+# ONCE=true — один цикл и стоп.
+KINDS ?=
+SEED  ?=
+ONCE  ?= false
+
+.PHONY: help venv run heartbeat check test frontend frontend-build \
+	scenario scenario-stop scenario-status scenario-journal
 
 help:
 	@printf 'make venv   — создать backend/.venv и поставить зависимости\n'
 	@printf 'make run    — запустить и включить heartbeat (Ctrl+C — остановить)\n'
 	@printf 'make check  — сверить опубликованные узлы с файлом привязок\n'
 	@printf 'make test   — pytest\n'
+	@printf 'make scenario [KINDS=a,b] [SEED=n] [ONCE=true] — пустить сценарии аварий\n'
+	@printf 'make scenario-stop / scenario-status / scenario-journal\n'
 	@printf 'make frontend / frontend-build\n\n'
 	@printf 'HOST=%s PORT=%s MODE=%s\n' '$(HOST)' '$(PORT)' '$(if $(MODE),$(MODE),server)'
 
@@ -61,6 +70,24 @@ heartbeat:
 
 check:
 	@$(PYTHON) scripts/check_published.py $(API)
+
+scenario:
+	@body='{"once": $(ONCE)'; \
+	if [ -n '$(KINDS)' ]; then \
+		body="$$body, \"kinds\": [\"$$(printf '%s' '$(KINDS)' | sed 's/,/","/g')\"]"; \
+	fi; \
+	if [ -n '$(SEED)' ]; then body="$$body, \"seed\": $(SEED)"; fi; \
+	curl -fsS -m 5 -X POST $(API)/api/scenarios/start \
+		-H 'Content-Type: application/json' -d "$$body}"; echo
+
+scenario-stop:
+	@curl -fsS -m 10 -X POST $(API)/api/scenarios/stop; echo
+
+scenario-status:
+	@curl -fsS -m 5 $(API)/api/scenarios/status; echo
+
+scenario-journal:
+	@curl -fsS -m 5 '$(API)/api/scenarios/journal?limit=20'; echo
 
 test: $(VENV)
 	cd backend && ./.venv/bin/python -m pytest -q

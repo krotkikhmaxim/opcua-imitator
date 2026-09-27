@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.services.signal_cache import SignalCache
@@ -97,6 +98,27 @@ class OPCSignalBus:
             return True
         except Exception:
             return False
+
+    @property
+    def simulated(self) -> bool:
+        """Пишет ли шина в собственную модель (встроенный сервер или кэш).
+
+        Сценарии допустимы только тогда: в режиме REAL запись ушла бы во
+        внешний сервер, то есть в настоящий ПЛК.
+        """
+        return self.mode in (OPCMode.SERVER, OPCMode.IMITATOR)
+
+    async def write_value_at(self, signal_id: str, value: Any, when: datetime) -> bool:
+        """Запись с заданной SourceTimestamp; только для симулированных режимов."""
+        if self.mode == OPCMode.SERVER and self._embedded is not None:
+            ok = await self._embedded.write_value_at(signal_id, value, when)
+            if ok:
+                self.cache.set_value(signal_id, value)
+            return ok
+        if self.mode == OPCMode.IMITATOR:
+            self.cache.set_value(signal_id, value)
+            return True
+        raise RuntimeError("timestamped writes are available only in simulated modes")
 
     async def close(self) -> None:
         if self._embedded is not None:
