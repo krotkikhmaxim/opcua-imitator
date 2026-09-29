@@ -89,6 +89,15 @@ scenario-status:
 scenario-journal:
 	@curl -fsS -m 5 '$(API)/api/scenarios/journal?limit=20'; echo
 
+# Воспроизвести запись реального режима (id из GET /api/scenarios, поле "mode"):
+#   make scenario-mode MODE=drive_fault [SEED=n]
+scenario-mode:
+	@test -n '$(MODE)' || { echo "usage: make scenario-mode MODE=drive_fault"; exit 2; }
+	@body='{"mode": "$(MODE)"'; \
+	if [ -n '$(SEED)' ]; then body="$$body, \"seed\": $(SEED)"; fi; \
+	curl -fsS -m 5 -X POST $(API)/api/scenarios/start \
+		-H 'Content-Type: application/json' -d "$$body}"; echo
+
 test: $(VENV)
 	cd backend && ./.venv/bin/python -m pytest -q
 

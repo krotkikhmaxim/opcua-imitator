@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
 class StartRequest(BaseModel):
     kinds: Optional[List[str]] = None
+    mode: Optional[str] = None
     seed: Optional[int] = None
     once: bool = False
 
@@ -60,9 +61,9 @@ async def status() -> Dict[str, Any]:
 @router.post("/start")
 async def start(req: StartRequest) -> Dict[str, Any]:
     try:
-        return await _engine().start(kinds=req.kinds, seed=req.seed, once=req.once)
+        return await _engine().start(kinds=req.kinds, mode=req.mode, seed=req.seed, once=req.once)
     except ScenarioError as exc:
-        code = 400 if exc.code == "unknown_kind" else 409
+        code = 400 if exc.code in ("unknown_kind", "unknown_mode") else 409
         raise HTTPException(status_code=code, detail=exc.message)
 
 

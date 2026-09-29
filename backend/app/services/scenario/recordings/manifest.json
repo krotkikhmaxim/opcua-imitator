@@ -1,0 +1,67 @@
+[
+  {
+    "mode": "in_motion",
+    "title": "В движении",
+    "fault": false,
+    "expected_answer": "Штатный ход машины без аварий: привод ведёт (скорость двигателя ненулевая, слово состояния инвертора 0x0422 — функция и нормальная работа), реле ТП под током (K1=1), коды ошибок привода равны нулю.",
+    "source": "В движениии 2.xlsx",
+    "sha256": "df414c78568354826208bac57b3efacd07b8771a9a19d8bb7b37d1e520524bca",
+    "published_signals": 20,
+    "changes": 18259,
+    "duration_ms": 119990,
+    "first_change_ms": 0,
+    "contains_dword_decode": false
+  },
+  {
+    "mode": "charged_stopped",
+    "title": "Заряжен (машина стоит на месте)",
+    "fault": false,
+    "expected_answer": "Машина заряжена и стоит на месте: скорость 0, привод готов (слово состояния инвертора 0x0401), реле ТП под током (K1=1), коды ошибок 0. Аварий нет.",
+    "source": "Заряжен машина стоит на месте 2.xlsx",
+    "sha256": "de34b56fcf3abb33461f9ccfcea15a95e3f26be33e1c599b0e74e831c3f17a28",
+    "published_signals": 20,
+    "changes": 23,
+    "duration_ms": 9000,
+    "first_change_ms": 0,
+    "contains_dword_decode": false
+  },
+  {
+    "mode": "machine_off",
+    "title": "Машина отключена",
+    "fault": false,
+    "expected_answer": "Машина отключена: скорость 0, привод не готов к работе (слово состояния инвертора 0x0001), реле ТП снято (K1=0), слово рекуператора в «не готов». Обесточенное штатное состояние.",
+    "source": "машина отключена.xlsx",
+    "sha256": "cfa628c63063353c0a5e28ade306549281e18fe4bff10f7568e489cca09a7c77",
+    "published_signals": 20,
+    "changes": 9858,
+    "duration_ms": 599990,
+    "first_change_ms": 0,
+    "contains_dword_decode": false
+  },
+  {
+    "mode": "drive_fault",
+    "title": "Авария привода",
+    "fault": true,
+    "expected_answer": "Привод в аварийном состоянии: реле ТП снято (K1=0), скорость 0, слово состояния инвертора 0x0401 без признаков работы, слово рекуператора меняется 2→8→10 (событие в отрезке). Машина стоит.",
+    "source": "авария привода 2.xlsx",
+    "sha256": "4d3aa3a27c43139e02acf290b3b35f17e23c60c540e1c0ae7f4219a393942c99",
+    "published_signals": 20,
+    "changes": 33,
+    "duration_ms": 5390,
+    "first_change_ms": 0,
+    "contains_dword_decode": false
+  },
+  {
+    "mode": "estop_pressed",
+    "title": "Нажата аварийная кнопка",
+    "fault": true,
+    "expected_answer": "Состояние аварийного останова: скорость 0, реле ТП снято (K1=0), слово состояния инвертора 0x0401 без признаков работы. Кнопка удерживается до конца записи.",
+    "source": "нажата аварийная кнопка 2.xlsx",
+    "sha256": "b6e17ec1973adea74dcb48f3c870ffe50f42e2c16ca94382e09e3566bf5794d8",
+    "published_signals": 20,
+    "changes": 327,
+    "duration_ms": 9550,
+    "first_change_ms": 0,
+    "contains_dword_decode": false
+  }
+]
