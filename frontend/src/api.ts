@@ -56,5 +56,7 @@ export const scenariosApi = {
   status: () => api.get<ScenarioStatus>('/scenarios/status').then((r) => r.data),
   startMode: (mode: string) =>
     api.post<ScenarioStatus>('/scenarios/start', { mode }).then((r) => r.data),
+  startKinds: (kinds: string[], once = true) =>
+    api.post<ScenarioStatus>('/scenarios/start', { kinds, once }).then((r) => r.data),
   stop: () => api.post<ScenarioStatus>('/scenarios/stop').then((r) => r.data),
 }

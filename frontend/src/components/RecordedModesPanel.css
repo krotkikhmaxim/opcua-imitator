@@ -87,6 +87,17 @@
   gap: 12px;
 }
 
+.rm-block-title {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.rm-block-title + .rm-cards {
+  margin-bottom: 18px;
+}
+
 .rm-card {
   position: relative;
   background: #ffffff;
