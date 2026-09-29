@@ -1,5 +1,15 @@
 import axios from 'axios'
-import { HeartbeatResponse, ImportResponse, LoadResponse, SaveResponse, StateInfo, WriteBatchResponse, WriteResponse } from './types'
+import {
+  HeartbeatResponse,
+  ImportResponse,
+  LoadResponse,
+  SaveResponse,
+  ScenarioDescribe,
+  ScenarioStatus,
+  StateInfo,
+  WriteBatchResponse,
+  WriteResponse,
+} from './types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -39,4 +49,12 @@ export const heartbeatApi = {
   get: () => api.get<HeartbeatResponse>('/heartbeat').then((r) => r.data),
   set: (enabled: boolean) =>
     api.put<HeartbeatResponse>('/heartbeat', { enabled }).then((r) => r.data),
+}
+
+export const scenariosApi = {
+  describe: () => api.get<ScenarioDescribe>('/scenarios').then((r) => r.data),
+  status: () => api.get<ScenarioStatus>('/scenarios/status').then((r) => r.data),
+  startMode: (mode: string) =>
+    api.post<ScenarioStatus>('/scenarios/start', { mode }).then((r) => r.data),
+  stop: () => api.post<ScenarioStatus>('/scenarios/stop').then((r) => r.data),
 }

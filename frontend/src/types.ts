@@ -71,3 +71,42 @@ export interface HeartbeatResponse {
   enabled: boolean
   supported: boolean
 }
+
+export interface RecordedMode {
+  mode: string
+  title: string
+  fault: boolean
+  description: string
+  expected_answer: string
+  signals: string[]
+  changes: number
+  duration_ms: number
+  source: string
+  sha256: string
+}
+
+export interface ScenarioStatus {
+  running: boolean
+  phase: string
+  run_id: string | null
+  seed: number | null
+  kinds: string[] | null
+  once: boolean | null
+  episode: number
+  kind: string | null
+  started_at: string | null
+  writes: number
+  write_failures: number
+  max_lag_ms: number
+  error: string | null
+}
+
+export interface ScenarioDescribe {
+  available: boolean
+  unavailable_reason?: string | null
+  missing_signals?: string[]
+  kinds: { kind: string; title: string; fault: boolean }[]
+  modes: RecordedMode[]
+  assumptions: { signal_id: string; value: unknown; note: string }[]
+  status: ScenarioStatus
+}

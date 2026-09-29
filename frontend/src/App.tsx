@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import RecordedModesPanel from './components/RecordedModesPanel'
 import StateManager from './components/StateManager'
 import { heartbeatApi, signalsApi } from './api'
 import { HeartbeatResponse, Signal } from './types'
@@ -225,6 +226,8 @@ export default function App() {
       </header>
 
       <StateManager onStateLoaded={handleStateLoaded} />
+
+      <RecordedModesPanel onModeChanged={refreshSignals} />
 
       <section className="signals-panel">
         <div className="signals-head">
