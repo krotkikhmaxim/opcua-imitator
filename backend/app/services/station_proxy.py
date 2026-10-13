@@ -50,9 +50,18 @@ class StationProxy:
         *,
         params: Optional[Dict[str, Any]] = None,
         json: Any = None,
+        timeout_s: Optional[float] = None,
     ) -> httpx.Response:
+        """Один запрос; ``timeout_s`` перекрывает клиентский таймаут.
+
+        Расчёт снапшота на станции — тяжёлый путь (исполнимая модель по всем
+        выходам проекта) и в 5 секунд клиентского умолчания не укладывается,
+        поэтому тяжёлые вызовы просят свой бюджет.
+        """
         try:
-            return await self._client.request(method, path, params=params, json=json)
+            return await self._client.request(
+                method, path, params=params, json=json, timeout=timeout_s
+            )
         except httpx.TransportError as exc:
             raise StationUnreachable(f"{type(exc).__name__}: {exc}") from exc
 
