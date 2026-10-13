@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,14 +28,18 @@ class StateServiceHolder:
 
     bus = None
     storage: StateStorage = None
+    # Журнал timestamped-записей (опционален): восстановление состояния —
+    # тоже источник значений, сверка со станцией должна его видеть.
+    ledger = None
 
 
 _holder = StateServiceHolder()
 
 
-def set_services(bus, storage: StateStorage) -> None:
+def set_services(bus, storage: StateStorage, ledger=None) -> None:
     _holder.bus = bus
     _holder.storage = storage
+    _holder.ledger = ledger
 
 
 @router.get("/list")
@@ -87,6 +92,8 @@ async def load_state(req: LoadRequest) -> Dict[str, Any]:
         ok = await _holder.bus.write_value(signal_id, value)
         if ok:
             loaded_count += 1
+            if _holder.ledger is not None:
+                _holder.ledger.note(datetime.now(timezone.utc), signal_id, value)
         else:
             errors.append(f"Ошибка записи сигнала {signal_id}")
 

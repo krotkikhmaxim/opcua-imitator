@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -13,12 +14,16 @@ from app.api.scenario_routes import (
     ensure_manual_writes_allowed,
     get_scenario_engine,
     router as scenario_router,
+    set_gate,
+    set_registry,
     set_scenario_engine,
 )
 from app.config import load_signal_config, settings
+from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
 from app.services.scenario import ScenarioEngine
+from app.services.scenario.hoist import BASELINE
 from app.services.signal_cache import SignalCache
 from app.services.storage import StateStorage
 from app.services.ws import manager
@@ -43,20 +48,33 @@ _storage = StateStorage(settings.SAVED_STATES_DIR)
 # Heartbeat (cyclic refresh) создаётся в startup для режима SERVER; вне его —
 # None, и API сообщает о недоступности режима.
 _heartbeat: Optional[HeartbeatService] = None
+# Драйверы значений: ровно один активный источник записей (ручной/сценарий/
+# плейбэк), журнал всех timestamped-записей для сверки со станцией и шлюз,
+# глушащий heartbeat на время драйвера (иначе он перезаписывает
+# SourceTimestamp и портит шкалу события).
+_registry = ValueDriverRegistry()
+_ledger = WriteLedger()
+_gate = HeartbeatGate(_registry, lambda: _heartbeat)
 
 set_services(_bus, _storage)
 app.include_router(router)
 # Сценарии пишут через ту же шину; в режиме real движок недоступен — запись
-# ушла бы во внешний сервер, то есть в настоящий ПЛК.
+# ушла бы во внешний сервер, то есть в настоящий ПЛК. Писатель обёрнут
+# журналом: движок не знает о нём, а сверка со станцией получает все записи.
 set_scenario_engine(
     ScenarioEngine(
-        _bus.write_value_at,
+        _ledger.wrap(_bus.write_value_at),
         _cache.config,
         simulated=_bus.simulated,
         journal_path=Path(settings.SCENARIO_JOURNAL_PATH),
     )
 )
 app.include_router(scenario_router)
+set_registry(_registry)
+set_gate(_gate)
+_registry.register(
+    "scenario", lambda: (engine.running if (engine := get_scenario_engine()) else False)
+)
 
 
 @app.on_event("startup")
@@ -165,6 +183,7 @@ async def write_signal(req: WriteSignalRequest) -> dict:
     ok = await _bus.write_value(req.id, value)
     if not ok:
         raise HTTPException(status_code=500, detail="Ошибка записи сигнала")
+    _ledger.note(datetime.now(timezone.utc), req.id, value)
     return {"status": "ok", "id": req.id, "value": value}
 
 
@@ -189,6 +208,7 @@ async def write_batch(req: WriteBatchRequest) -> dict:
         ok = await _bus.write_value(signal_id, coerced)
         if ok:
             applied.append(signal_id)
+            _ledger.note(datetime.now(timezone.utc), signal_id, coerced)
         else:
             errors.append(f"Ошибка записи сигнала {signal_id}")
 
