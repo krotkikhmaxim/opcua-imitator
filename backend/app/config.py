@@ -14,6 +14,8 @@ class Settings:
     )
     # Журнал правды сценариев (JSONL): что случилось и какой ответ эталонный.
     SCENARIO_JOURNAL_PATH: str = os.getenv("SCENARIO_JOURNAL_PATH", "scenario_runs/journal.jsonl")
+    # Отчёты сверки с журналом правды (шаг 6): по файлу на сверку.
+    VERIFICATION_DIR: str = os.getenv("VERIFICATION_DIR", "scenario_runs/verifications")
     # WS-фид дельт значений: интервал рассылки в секундах; 0 отключает фид.
     VALUES_FEED_INTERVAL_S: float = float(os.getenv("VALUES_FEED_INTERVAL_S", "0.5"))
     # Плейбэк XLSX-трендов: лимит размера файла (экспорт владельца — сотни

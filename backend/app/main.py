@@ -20,6 +20,10 @@ from app.api.scenario_routes import (
     set_scenario_engine,
 )
 from app.api.station_routes import router as station_router, set_station_proxy
+from app.api.verification_routes import (
+    router as verification_router,
+    set_verification_services,
+)
 from app.config import load_signal_config, settings
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
@@ -95,6 +99,10 @@ app.include_router(playback_router)
 _station_proxy = StationProxy(settings.STATION_URL, timeout_s=settings.STATION_TIMEOUT_S)
 set_station_proxy(_station_proxy)
 app.include_router(station_router)
+# Сверка с журналом правды: тот же журнал записей (ожидаемое состояние на
+# момент остановки); прокси сверка берёт актуальный у station_routes.
+set_verification_services(_ledger)
+app.include_router(verification_router)
 # WS-фид дельт: тот же реестр (смена активного драйвера уходит в WS) и тот же
 # шлюз (тик пересчитывает heartbeat, если драйвер остановился мимо маршрута).
 _values_feed = ValuesFeed(

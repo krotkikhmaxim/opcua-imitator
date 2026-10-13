@@ -11,6 +11,8 @@ import {
   StateInfo,
   StationBindingsResponse,
   StationSnapshotInfo,
+  VerificationListResponse,
+  VerificationReport,
   WriteBatchResponse,
   WriteResponse,
 } from './types'
@@ -100,4 +102,16 @@ export const stationApi = {
       .then((r) => r.data),
   calculations: () =>
     api.get<{ calculations?: unknown[] }>('/station/calculations').then((r) => r.data),
+}
+
+export const verificationApi = {
+  report: (entry: JournalEntry, snapshotId?: string) =>
+    api
+      .post<VerificationReport>('/verification/report', {
+        entry,
+        ...(snapshotId ? { snapshot_id: snapshotId } : {}),
+      })
+      .then((r) => r.data),
+  list: () =>
+    api.get<VerificationListResponse>('/verification/list').then((r) => r.data),
 }

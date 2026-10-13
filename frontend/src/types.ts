@@ -195,3 +195,65 @@ export interface StationSnapshotInfo {
   created_at?: string
   [key: string]: unknown
 }
+
+// -- сверка с журналом правды -------------------------------------------------
+
+export type VerificationVerdict = 'pass' | 'partial' | 'fail'
+
+export interface VerificationReport {
+  generated_at?: string
+  entry: {
+    run_id?: string
+    seed?: number
+    episode?: number
+    kind?: string
+    title?: string
+    fault?: boolean
+    cause_at?: string
+    stopped_at?: string
+  }
+  snapshot: {
+    id?: string
+    capture_mode?: string
+    tags_total?: number
+    tags_received?: number
+    value_spread_ms?: number | null
+  }
+  cause_check: {
+    verdicts: { signal_id: string; name?: string | null; verdict: string }[]
+    counts: Record<string, number>
+  }
+  state_check: {
+    total: number
+    present: number
+    missing: number
+    value_matched: number
+    value_mismatched: number
+  }
+  outputs: {
+    total: number
+    computed: number
+    by_status: Record<string, number>
+    reason_breakdown: Record<string, number>
+    coverage?: number
+  } | null
+  outputs_error?: { status: number; detail: unknown }
+  verdict: VerificationVerdict
+}
+
+export interface VerificationListItem {
+  file: string
+  generated_at?: string
+  verdict: VerificationVerdict
+  kind?: string | null
+  title?: string | null
+  run_id?: string | null
+  episode?: number | null
+  cause_counts?: Record<string, number>
+  state_mismatched?: number
+}
+
+export interface VerificationListResponse {
+  items: VerificationListItem[]
+  total: number
+}

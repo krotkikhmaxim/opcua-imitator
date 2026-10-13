@@ -25,6 +25,13 @@ def set_station_proxy(proxy: Optional[StationProxy]) -> None:
     _proxy = proxy
 
 
+def get_station_proxy() -> StationProxy:
+    """Актуальный прокси приложения: единственный владелец ссылки — этот модуль."""
+    if _proxy is None:
+        raise RuntimeError("Прокси станции не инициализирован")
+    return _proxy
+
+
 def _proxy_required() -> StationProxy:
     if _proxy is None:
         raise RuntimeError("Прокси станции не инициализирован")
