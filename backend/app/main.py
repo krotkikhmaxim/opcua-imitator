@@ -19,6 +19,7 @@ from app.api.scenario_routes import (
     set_registry,
     set_scenario_engine,
 )
+from app.api.station_routes import router as station_router, set_station_proxy
 from app.config import load_signal_config, settings
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
@@ -27,6 +28,7 @@ from app.services.playback.service import PlaybackService
 from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
 from app.services.signal_cache import SignalCache
+from app.services.station_proxy import StationProxy
 from app.services.storage import StateStorage
 from app.services.values_feed import ValuesFeed
 from app.services.ws import manager
@@ -88,6 +90,11 @@ set_playback_service(
     upload_dir=Path(settings.PLAYBACK_UPLOAD_DIR),
 )
 app.include_router(playback_router)
+# Станция — наблюдатель: прокси только читает её API (белый список под
+# /api/station), CORS у станции нет по умолчанию и не появляется.
+_station_proxy = StationProxy(settings.STATION_URL, timeout_s=settings.STATION_TIMEOUT_S)
+set_station_proxy(_station_proxy)
+app.include_router(station_router)
 # WS-фид дельт: тот же реестр (смена активного драйвера уходит в WS) и тот же
 # шлюз (тик пересчитывает heartbeat, если драйвер остановился мимо маршрута).
 _values_feed = ValuesFeed(
@@ -116,6 +123,7 @@ async def startup() -> None:
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await _values_feed.stop()
+    await _station_proxy.aclose()
     engine = get_scenario_engine()
     if engine is not None:
         await engine.stop()

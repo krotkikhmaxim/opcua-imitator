@@ -6,6 +6,7 @@ import MnemoPanel from './components/mnemo/MnemoPanel'
 import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream } from './components/mnemo/useSignalStream'
 import PlaybackPanel from './components/playback/PlaybackPanel'
+import StationEchoPanel from './components/station/StationEchoPanel'
 import { heartbeatApi, signalsApi } from './api'
 import { HeartbeatResponse, Signal } from './types'
 import './App.css'
@@ -287,6 +288,7 @@ export default function App() {
           {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
           <MnemoPanel signals={signals} driverActive={driverActive} showStatus={showStatus} />
           <TruthJournalPanel />
+          <StationEchoPanel />
         </section>
       )}
 

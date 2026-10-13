@@ -9,6 +9,8 @@ import {
   ScenarioDescribe,
   ScenarioStatus,
   StateInfo,
+  StationBindingsResponse,
+  StationSnapshotInfo,
   WriteBatchResponse,
   WriteResponse,
 } from './types'
@@ -81,4 +83,21 @@ export const scenariosApi = {
   startKinds: (kinds: string[], once = true) =>
     api.post<ScenarioStatus>('/scenarios/start', { kinds, once }).then((r) => r.data),
   stop: () => api.post<ScenarioStatus>('/scenarios/stop').then((r) => r.data),
+}
+
+// Прокси станции: read-only белый список. 502 station_unreachable приходит
+// как ошибка axios с detail.code в теле.
+export const stationApi = {
+  health: () => api.get<{ status?: string }>('/station/health').then((r) => r.data),
+  bindings: () =>
+    api.get<StationBindingsResponse>('/station/bindings').then((r) => r.data),
+  snapshot: (mode = 'live_batch', projectId?: string) =>
+    api
+      .post<StationSnapshotInfo>('/station/snapshots', {
+        mode,
+        ...(projectId ? { project_id: projectId } : {}),
+      })
+      .then((r) => r.data),
+  calculations: () =>
+    api.get<{ calculations?: unknown[] }>('/station/calculations').then((r) => r.data),
 }

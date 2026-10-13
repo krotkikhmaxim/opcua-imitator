@@ -22,6 +22,11 @@ class Settings:
     PLAYBACK_MAX_BYTES: int = int(os.getenv("PLAYBACK_MAX_BYTES", 1024 * 1024 * 1024))
     PLAYBACK_UPLOAD_MAX_BYTES: int = int(os.getenv("PLAYBACK_UPLOAD_MAX_BYTES", 50 * 1024 * 1024))
     PLAYBACK_UPLOAD_DIR: str = os.getenv("PLAYBACK_UPLOAD_DIR", "playback_uploads")
+    # Станция asutpv1_bigllm: база прокси, таймаут и проект по умолчанию
+    # для снимков live_batch (панель «эхо» и сверка).
+    STATION_URL: str = os.getenv("STATION_URL", "http://127.0.0.1:8080")
+    STATION_TIMEOUT_S: float = float(os.getenv("STATION_TIMEOUT_S", "5"))
+    STATION_PROJECT_ID: str = os.getenv("STATION_PROJECT_ID", "124_NSH2_PS")
     TIME_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_VERSION: str = "1.0"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024

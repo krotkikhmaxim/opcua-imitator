@@ -151,3 +151,47 @@ export interface PlaybackStatus {
   max_lag_ms: number
   error: string | null
 }
+
+// -- станция (эхо через прокси имитатора) ------------------------------------
+
+export type TelemetryBindingState =
+  | 'active'
+  | 'inactive'
+  | 'connection_missing'
+  | 'error'
+  | 'bad_quality'
+  | 'unbound'
+
+/** Строка таблицы сигналов станции (src/api/schemas.py TelemetryBindingRow). */
+export interface TelemetryBindingRow {
+  id: string
+  project_id: string
+  project_tag_id: string
+  name: string
+  channel?: string | null
+  cabinet?: string | null
+  module?: string | null
+  device?: string | null
+  direction?: string | null
+  bit?: number | null
+  bound: boolean
+  state: TelemetryBindingState
+  last_value?: boolean | number | string | null
+  last_quality?: string | null
+  last_source_timestamp?: string | null
+  symbol_id?: string | null
+}
+
+export interface StationBindingsResponse {
+  bindings: TelemetryBindingRow[]
+}
+
+/** Ответ станции на снимок/расчёт: читаем свободно — контракт широкий. */
+export interface StationSnapshotInfo {
+  id: string
+  mode?: string
+  status?: string
+  project_id?: string
+  created_at?: string
+  [key: string]: unknown
+}
