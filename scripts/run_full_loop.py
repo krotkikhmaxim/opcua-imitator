@@ -64,17 +64,28 @@ def call(api: str, method: str, path: str, body: Optional[Dict] = None, timeout:
         raise LoopError("unreachable", f"{method} {path} → имитатор недоступен: {exc.reason}") from exc
 
 
-def require_station(api: str) -> None:
-    try:
-        call(api, "GET", "/api/station/health", timeout=10)
-    except LoopError as exc:
-        if exc.code == "api_error":
-            raise  # станция ответила ошибкой — покажем её, а не «недоступна»
-        raise LoopError(
-            "station_unreachable",
-            "станция не отвечает за прокси имитатора — поднимите её (make install-stack "
-            "в репо станции) и проверьте STATION_URL",
-        ) from exc
+def require_station(api: str, attempts: int = 3, pause_s: float = 2.0) -> None:
+    """Станция должна отвечать за прокси имитатора.
+
+    ``/health`` станции при деградации (qdrant/ollama недоступны) иногда
+    держится дольше таймаута прокси, поэтому попытки три: настоящий простой
+    отказывает быстро, а медленный ответ — не повод снимать прогон.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            call(api, "GET", "/api/station/health", timeout=10)
+            return
+        except LoopError as exc:
+            if exc.code != "api_error":
+                raise LoopError(
+                    "station_unreachable",
+                    "станция не отвечает за прокси имитатора — поднимите её (make install-stack "
+                    "в репо станции) и проверьте STATION_URL",
+                ) from exc
+            if attempt == attempts:
+                raise  # станция ответила ошибкой — покажем её, а не «недоступна»
+            print(f"     health не ответил (попытка {attempt}/{attempts}): {exc.message}")
+            time.sleep(pause_s)
 
 
 def wait_stopped_window(api: str, deadline_s: float) -> Dict:
