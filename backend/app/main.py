@@ -26,6 +26,7 @@ from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
 from app.services.signal_cache import SignalCache
 from app.services.storage import StateStorage
+from app.services.values_feed import ValuesFeed
 from app.services.ws import manager
 
 logging.basicConfig(level=logging.INFO)
@@ -75,6 +76,16 @@ set_gate(_gate)
 _registry.register(
     "scenario", lambda: (engine.running if (engine := get_scenario_engine()) else False)
 )
+# WS-фид дельт: тот же реестр (смена активного драйвера уходит в WS) и тот же
+# шлюз (тик пересчитывает heartbeat, если драйвер остановился мимо маршрута).
+_values_feed = ValuesFeed(
+    _bus.read_value,
+    [cfg["id"] for cfg in _cache.config],
+    manager.broadcast,
+    settings.VALUES_FEED_INTERVAL_S,
+    registry=_registry,
+    gate=_gate,
+)
 
 
 @app.on_event("startup")
@@ -86,11 +97,13 @@ async def startup() -> None:
             _bus.embedded, [cfg["id"] for cfg in _cache.config]
         )
         logger.info("heartbeat service ready (%d signals)", len(_cache.config))
+    _values_feed.start()
     logger.info("OPC UA bus started in %s mode", _bus.mode)
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await _values_feed.stop()
     engine = get_scenario_engine()
     if engine is not None:
         await engine.stop()

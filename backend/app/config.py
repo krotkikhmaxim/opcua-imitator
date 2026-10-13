@@ -14,6 +14,8 @@ class Settings:
     )
     # Журнал правды сценариев (JSONL): что случилось и какой ответ эталонный.
     SCENARIO_JOURNAL_PATH: str = os.getenv("SCENARIO_JOURNAL_PATH", "scenario_runs/journal.jsonl")
+    # WS-фид дельт значений: интервал рассылки в секундах; 0 отключает фид.
+    VALUES_FEED_INTERVAL_S: float = float(os.getenv("VALUES_FEED_INTERVAL_S", "0.5"))
     TIME_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_VERSION: str = "1.0"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024
