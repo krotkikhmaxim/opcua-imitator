@@ -7,7 +7,7 @@
     "channel_2": "Chanel2"
   },
   "opcua_namespace_index": 2,
-  "count": 96,
+  "count": 101,
   "bindings": [
     {"id":"ch1-10a3-sq1","name":"Синхронизация левого сосуда","project_tag":"Chanel1.Application.GVL.GlobalInOutSignal.x10A3DigitalInput.SQ1_SinhLeftTop","opcua_node":"ns=2;s=Chanel1.Application.GVL.GlobalInOutSignal.x10A3DigitalInput.SQ1_SinhLeftTop","type":"Boolean","writable":false,"channel":"Chanel1","cabinet":"ШУ ПМ, канал 1","module":"10A3","direction":"DI","bit":0,"device":"SQ1"},
     {"id":"ch1-10a3-sq3","name":"Синхронизация правого сосуда","project_tag":"Chanel1.Application.GVL.GlobalInOutSignal.x10A3DigitalInput.SQ3_SinhRightTop","opcua_node":"ns=2;s=Chanel1.Application.GVL.GlobalInOutSignal.x10A3DigitalInput.SQ3_SinhRightTop","type":"Boolean","writable":false,"channel":"Chanel1","cabinet":"ШУ ПМ, канал 1","module":"10A3","direction":"DI","bit":2,"device":"SQ3"},
