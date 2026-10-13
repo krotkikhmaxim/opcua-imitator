@@ -116,25 +116,39 @@ def state_check(
 
 
 def outputs_observation(calculation: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Покрытие расчёта станции — как есть, без суждения о норме."""
+    """Покрытие расчёта станции — как есть, без суждения о норме.
+
+    Форма — ответ ``GET /api/telemetry/snapshots/{id}/results``:
+    ``outputs_total``/``outputs_computed`` плюс ``composition``
+    (``by_status`` и причины по группам). Отказ расчёта (``refusal``)
+    проходит в наблюдение как есть — это факт станции, не ошибка сверки.
+    """
     if not calculation:
         return None
-    counts = calculation.get("counts") or {}
-    by_status: Counter = Counter()
-    computed = 0
-    for row in calculation.get("results") or []:
-        if row.get("role") != "output":
+    composition = calculation.get("composition") or {}
+    by_status = composition.get("by_status") or {}
+    total = calculation.get("outputs_total")
+    if total is None:
+        total = sum(by_status.values())
+    computed = calculation.get("outputs_computed")
+    if computed is None:
+        computed = by_status.get("calculated", 0)
+    reasons: Dict[str, Any] = {}
+    for key, block in composition.items():
+        if key == "by_status" or not isinstance(block, dict):
             continue
-        by_status[row.get("status") or "unknown"] += 1
-        if row.get("status") == "calculated":
-            computed += 1
-    return {
-        "total": counts.get("output", sum(by_status.values())),
+        for name, value in block.items():
+            reasons[f"{key}.{name}"] = value
+    observation: Dict[str, Any] = {
+        "total": total,
         "computed": computed,
         "by_status": dict(sorted(by_status.items())),
-        "reason_breakdown": calculation.get("cause_breakdown") or {},
-        "coverage": calculation.get("coverage"),
+        "reason_breakdown": reasons,
+        "coverage": round(computed / total, 4) if total else None,
     }
+    if calculation.get("refusal"):
+        observation["refusal"] = calculation["refusal"]
+    return observation
 
 
 def build_report(

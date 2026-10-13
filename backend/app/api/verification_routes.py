@@ -99,8 +99,11 @@ async def report(req: VerifyRequest) -> Dict[str, Any]:
     outputs_error: Optional[Dict[str, Any]] = None
     if snapshot_id:
         try:
+            # calculate запускает расчёт, результаты читаются отдельной ручкой:
+            # именно там живут outputs_total/computed и composition.
+            await _station_json("POST", f"/api/telemetry/snapshots/{snapshot_id}/calculate")
             calculation = await _station_json(
-                "POST", f"/api/telemetry/snapshots/{snapshot_id}/calculate"
+                "GET", f"/api/telemetry/snapshots/{snapshot_id}/results"
             )
         except HTTPException as exc:
             outputs_error = {

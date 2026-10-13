@@ -236,6 +236,8 @@ export interface VerificationReport {
     by_status: Record<string, number>
     reason_breakdown: Record<string, number>
     coverage?: number
+    /** Отказ расчёта станции (факт станции, вердикт не трогает). */
+    refusal?: unknown
   } | null
   outputs_error?: { status: number; detail: unknown }
   verdict: VerificationVerdict

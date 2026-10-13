@@ -178,26 +178,32 @@ def test_verdict_fail_partial_pass():
 def test_outputs_is_observation_only():
     assert build_report(_entry(), {"snapshot_id": "s", "points": []}, {})["outputs"] is None
 
-    calculation = {
-        "counts": {"output": 2, "input": 3},
-        "cause_breakdown": {"no_writer": 1},
-        "coverage": 0.5,
-        "results": [
-            {"role": "input", "status": "input_from_telemetry"},
-            {"role": "output", "status": "calculated", "reason_code": None},
-            {"role": "output", "status": "missing_initial_state", "reason_code": "no_writer"},
-        ],
+    results = {
+        "outputs_total": 350,
+        "outputs_computed": 136,
+        "refusal": None,
+        "composition": {
+            "by_status": {"calculated": 136, "missing_initial_state": 214},
+            "missing_initial_state": {"no_writer": 214},
+            "unsupported_reasons": {},
+        },
     }
-    outputs = build_report(_entry(), {"snapshot_id": "s", "points": []}, {}, calculation)[
+    outputs = build_report(_entry(), {"snapshot_id": "s", "points": []}, {}, results)[
         "outputs"
     ]
-    assert outputs["total"] == 2
-    assert outputs["computed"] == 1
-    assert outputs["by_status"] == {"calculated": 1, "missing_initial_state": 1}
-    assert outputs["reason_breakdown"] == {"no_writer": 1}
-    assert outputs["coverage"] == 0.5
+    assert outputs["total"] == 350
+    assert outputs["computed"] == 136
+    assert outputs["by_status"] == {"calculated": 136, "missing_initial_state": 214}
+    assert outputs["reason_breakdown"] == {"missing_initial_state.no_writer": 214}
+    assert outputs["coverage"] == round(136 / 350, 4)
+    # отказ расчёта проходит в наблюдение как есть и вердикт не трогает
+    refused = build_report(
+        _entry(), {"snapshot_id": "s", "points": []}, {}, _RESULTS_REFUSED
+    )["outputs"]
+    assert refused["total"] == 0
+    assert refused["refusal"] == {"code": "no_program", "message": "нет программы"}
     # покрытие станции вердикт не трогает
-    assert build_report(_entry(), {"snapshot_id": "s", "points": []}, {}, calculation)["verdict"] == "partial"
+    assert build_report(_entry(), {"snapshot_id": "s", "points": []}, {}, results)["verdict"] == "partial"
 
 
 # -- HTTP-слой ---------------------------------------------------------------
@@ -212,6 +218,8 @@ def _station_routes(snapshot_body, calculation_body):
         if request.method == "POST" and path == "/api/telemetry/snapshots":
             return httpx.Response(201, json=snapshot_body)
         if request.method == "POST" and path.endswith("/calculate"):
+            return httpx.Response(200, json={"snapshot_id": snapshot_body["snapshot_id"], "cached": False})
+        if request.method == "GET" and path.endswith("/results"):
             return httpx.Response(200, json=calculation_body)
         if request.method == "GET" and path.startswith("/api/telemetry/snapshots/"):
             return httpx.Response(200, json=snapshot_body)
@@ -245,20 +253,26 @@ def _full_snapshot():
     }
 
 
-_CALC = {
+# Форма ответа GET /api/telemetry/snapshots/{id}/results — именно её
+# разбирает outputs_observation (outputs_total/computed + composition).
+_RESULTS = {
     "snapshot_id": "snap-1",
     "project_revision": "rev-1",
-    "cached": False,
-    "calculated_at": "2026-03-23T15:05:01+00:00",
-    "counts": {"output": 1},
-    "evaluated_count": 1,
-    "not_evaluated_count": 0,
-    "cause_breakdown": {},
-    "coverage": 1.0,
-    "capture_window_ms": 0,
-    "value_spread_ms": 0,
-    "consistency": "best_effort_consistent",
-    "results": [
+    "program_snapshot_id": "psn-1",
+    "mode": "live_batch",
+    "source": "snapshot",
+    "created_at": "2026-03-23T15:05:01+00:00",
+    "refusal": None,
+    "bindings_total": 1,
+    "bindings_resolved": 1,
+    "outputs_total": 1,
+    "outputs_computed": 1,
+    "composition": {
+        "by_status": {"calculated": 1},
+        "missing_initial_state": {},
+        "unsupported_reasons": {},
+    },
+    "rows": [
         {
             "tag_id": "out-1",
             "symbol_id": None,
@@ -278,6 +292,17 @@ _CALC = {
     ],
 }
 
+# Расчёт с отказом: состав пуст, отказ проходит в наблюдение как есть.
+_RESULTS_REFUSED = {
+    "snapshot_id": "snap-1",
+    "project_revision": "rev-1",
+    "refusal": {"code": "no_program", "message": "нет программы"},
+    "outputs_total": None,
+    "outputs_computed": None,
+    "composition": {"by_status": {}},
+    "rows": [],
+}
+
 
 @pytest.fixture()
 def verify_env(tmp_path, monkeypatch):
@@ -288,7 +313,7 @@ def verify_env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "VERIFICATION_DIR", str(tmp_path / "verifications"))
     main_module._ledger.clear()
     original = main_module._station_proxy
-    proxy = StationProxy("http://station.test", transport=_station_routes(_full_snapshot(), _CALC))
+    proxy = StationProxy("http://station.test", transport=_station_routes(_full_snapshot(), _RESULTS))
     set_station_proxy(proxy)
     yield main_module
     set_station_proxy(original)
@@ -314,7 +339,9 @@ def test_report_captures_snapshot_calculates_and_passes(verify_env):
     assert body["verdict"] == "pass"
     assert body["cause_check"]["counts"]["match"] == 1
     assert body["state_check"]["missing"] == 0
+    assert body["outputs"]["total"] == 1
     assert body["outputs"]["computed"] == 1
+    assert body["outputs"]["by_status"] == {"calculated": 1}
 
     saved = list(Path(settings.VERIFICATION_DIR).glob("*.json"))
     assert len(saved) == 1
