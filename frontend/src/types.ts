@@ -219,6 +219,10 @@ export interface VerificationReport {
     tags_received?: number
     value_spread_ms?: number | null
   }
+  /** Переснятия снимка из-за протухших точек (ключ отсутствует, если гейт молчал). */
+  snapshot_recaptures?: number
+  /** Точки, которых станция не видела дольше окна до снимка (честный факт станции). */
+  stale_points?: string[]
   cause_check: {
     verdicts: { signal_id: string; name?: string | null; verdict: string }[]
     counts: Record<string, number>

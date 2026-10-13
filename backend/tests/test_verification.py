@@ -25,7 +25,7 @@ from app.services.scenario.hoist import BASELINE
 from app.services.verification import build_report, values_equal
 
 
-def _point(signal_id, *, value=None, presence="present", tag=None):
+def _point(signal_id, *, value=None, presence="present", tag=None, received_at=None):
     return {
         "point_id": f"p-{signal_id}",
         "tag": tag or f"tag-{signal_id}",
@@ -37,7 +37,9 @@ def _point(signal_id, *, value=None, presence="present", tag=None):
         "status_code": "0",
         "source_timestamp": "2026-03-23T15:00:00+00:00" if presence == "present" else None,
         "server_timestamp": None,
-        "received_at": None,
+        # Доставка по умолчанию свежая (за секунду до captured_at снапшота):
+        # гейт свежести меряет received_at, а не метку источника.
+        "received_at": received_at or "2026-03-23T15:04:59+00:00",
         "connection_id": "plc-a",
         "node_id": f"node-{signal_id}",
         "binding_id": signal_id,
@@ -228,13 +230,13 @@ def _station_routes(snapshot_body, calculation_body):
     return httpx.MockTransport(handler)
 
 
-def _full_snapshot():
+def _full_snapshot(snapshot_id: str = "snap-1"):
     points = [
         _point(signal_id, value=value)
         for signal_id, value in BASELINE.items()
     ]
     return {
-        "snapshot_id": "snap-1",
+        "snapshot_id": snapshot_id,
         "project_id": "124_NSH2_PS",
         "project_revision": "rev-1",
         "capture_mode": "live_batch",
@@ -251,6 +253,15 @@ def _full_snapshot():
         "tags_untyped": 0,
         "points": points,
     }
+
+
+def _stale_snapshot(snapshot_id: str):
+    """Снимок, где станция не видела точки за час до снимка — гейт должен
+    отправить такой на переснятие."""
+    body = _full_snapshot(snapshot_id)
+    for point in body["points"]:
+        point["received_at"] = "2026-03-23T14:05:00+00:00"
+    return body
 
 
 # Форма ответа GET /api/telemetry/snapshots/{id}/results — именно её
@@ -306,11 +317,13 @@ _RESULTS_REFUSED = {
 
 @pytest.fixture()
 def verify_env(tmp_path, monkeypatch):
+    import app.api.verification_routes as vr
     import app.main as main_module
     from app.api.station_routes import set_station_proxy
     from app.services.station_proxy import StationProxy
 
     monkeypatch.setattr(settings, "VERIFICATION_DIR", str(tmp_path / "verifications"))
+    monkeypatch.setattr(vr, "RECAPTURE_PAUSE_S", 0.0)  # тесты не ждут реальных секунд
     main_module._ledger.clear()
     original = main_module._station_proxy
     proxy = StationProxy("http://station.test", transport=_station_routes(_full_snapshot(), _RESULTS))
@@ -379,3 +392,82 @@ def test_report_returns_502_when_station_down(verify_env):
     resp = _client().post("/api/verification/report", json={"entry": _entry()})
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "station_unreachable"
+
+
+# -- гейт свежести снимка -----------------------------------------------------
+
+
+def _snapshot_queue_transport(bodies):
+    """POST /snapshots раздаёт тела по очереди (последнее повторяется)."""
+    state = {"calls": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "POST" and path == "/api/telemetry/snapshots":
+            index = min(state["calls"], len(bodies) - 1)
+            state["calls"] += 1
+            return httpx.Response(201, json=bodies[index])
+        if request.method == "POST" and path.endswith("/calculate"):
+            return httpx.Response(200, json={"cached": False})
+        if request.method == "GET" and path.endswith("/results"):
+            return httpx.Response(200, json=_RESULTS)
+        return httpx.Response(404, json={"detail": "no route"})
+
+    return httpx.MockTransport(handler), state
+
+
+def test_report_recaptures_stale_snapshot_once(verify_env, monkeypatch):
+    from app.api.station_routes import set_station_proxy
+    from app.services.station_proxy import StationProxy
+
+    transport, state = _snapshot_queue_transport(
+        [_stale_snapshot("snap-stale"), _full_snapshot("snap-1")]
+    )
+    set_station_proxy(StationProxy("http://station.test", transport=transport))
+
+    resp = _client().post("/api/verification/report", json={"entry": _entry()})
+    assert resp.status_code == 200
+    body = resp.json()
+    # Протухший снимок переснят один раз, в отчёте — свежий.
+    assert state["calls"] == 2
+    assert body["snapshot_recaptures"] == 1
+    assert body["snapshot"]["id"] == "snap-1"
+    assert "stale_points" not in body
+
+
+def test_report_records_stale_points_when_recapture_exhausted(verify_env):
+    from app.api.station_routes import set_station_proxy
+    from app.services.station_proxy import StationProxy
+
+    transport, state = _snapshot_queue_transport(
+        [_stale_snapshot("snap-a"), _stale_snapshot("snap-b")]
+    )
+    set_station_proxy(StationProxy("http://station.test", transport=transport))
+
+    body = _client().post("/api/verification/report", json={"entry": _entry()}).json()
+    # Два переснятия не спасли — факт честно остаётся в отчёте.
+    assert state["calls"] == 3  # начальный + MAX_RECAPTURES
+    assert body["snapshot_recaptures"] == 2
+    assert body["snapshot"]["id"] == "snap-b"
+    assert len(body["stale_points"]) == len(BASELINE)
+
+
+def test_report_with_explicit_snapshot_id_skips_the_gate(verify_env):
+    from app.api.station_routes import set_station_proxy
+    from app.services.station_proxy import StationProxy
+
+    transport, state = _snapshot_queue_transport([_stale_snapshot("snap-stale")])
+    # GET указанного снимка отвечает тем же телом
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/snapshots/snap-stale"):
+            return httpx.Response(200, json=_stale_snapshot("snap-stale"))
+        return transport.handler(request)
+
+    set_station_proxy(StationProxy("http://station.test", transport=httpx.MockTransport(handler)))
+    resp = _client().post(
+        "/api/verification/report", json={"entry": _entry(), "snapshot_id": "snap-stale"}
+    )
+    assert resp.status_code == 200
+    # Явный снимок не переснялся: ни одного POST /snapshots.
+    assert state["calls"] == 0
+    assert "snapshot_recaptures" not in resp.json()
