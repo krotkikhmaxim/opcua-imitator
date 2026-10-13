@@ -24,6 +24,13 @@ class Settings:
     PLAYBACK_MAX_BYTES: int = int(os.getenv("PLAYBACK_MAX_BYTES", 1024 * 1024 * 1024))
     PLAYBACK_UPLOAD_MAX_BYTES: int = int(os.getenv("PLAYBACK_UPLOAD_MAX_BYTES", 50 * 1024 * 1024))
     PLAYBACK_UPLOAD_DIR: str = os.getenv("PLAYBACK_UPLOAD_DIR", "playback_uploads")
+    # Плейбэк архива станции: путь к SQLite (read-only) и лимит отсчётов окна
+    # — окно сверх лимита отклоняется, а не усекается.
+    ARCHIVE_PATH: str = os.getenv(
+        "ARCHIVE_PATH",
+        str(Path("/home/max/projects/asutpv1_bigllm/data/telemetry/archive.sqlite3")),
+    )
+    PLAYBACK_MAX_CHANGES: int = int(os.getenv("PLAYBACK_MAX_CHANGES", "200000"))
     # Станция asutpv1_bigllm: база прокси, таймаут и проект по умолчанию
     # для снимков live_batch (панель «эхо» и сверка).
     STATION_URL: str = os.getenv("STATION_URL", "http://127.0.0.1:8080")

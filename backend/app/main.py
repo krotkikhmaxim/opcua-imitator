@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.api.archive_routes import router as archive_router
 from app.api.playback_routes import router as playback_router, set_playback_service
 from app.api.routes import router, set_services
 from app.api.scenario_routes import (
@@ -95,6 +96,8 @@ set_playback_service(
     upload_dir=Path(settings.PLAYBACK_UPLOAD_DIR),
 )
 app.include_router(playback_router)
+# Архив станции: сводка серий для окна плейбэка; read-only в принципе.
+app.include_router(archive_router)
 # Станция — наблюдатель: прокси только читает её API (белый список под
 # /api/station), CORS у станции нет по умолчанию и не появляется.
 _station_proxy = StationProxy(settings.STATION_URL, timeout_s=settings.STATION_TIMEOUT_S)

@@ -27,6 +27,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional
 
+from .archive_reader import ArchiveError, open_archive
 from .xlsx import PlaybackSourceError, XlsxSource, open_source
 
 logger = logging.getLogger("opcua-imitator.playback")
@@ -111,12 +112,31 @@ class PlaybackService:
         max_bytes: int,
     ) -> Dict[str, Any]:
         """Открыть файл и сопоставить колонки; запущенный прогон останавливается."""
-        self._require_stopped_task()
         try:
             source = open_source(path, configs, max_bytes=max_bytes)
         except PlaybackSourceError as exc:
             raise PlaybackError(exc.code, exc.message)
-        # неудачная перезагрузка оставляет прежний файл загруженным
+        return self.load_from(
+            source,
+            mapped_signals=len(source.columns),
+            unmatched_columns=len(source.unmatched),
+            ambiguous=len(source.ambiguous),
+        )
+
+    def load_from(
+        self,
+        source: Any,
+        *,
+        mapped_signals: int,
+        unmatched_columns: int = 0,
+        ambiguous: int = 0,
+    ) -> Dict[str, Any]:
+        """Взять готовый источник (XLSX или архив); общий сброс состояния.
+
+        Неудачная перезагрузка (исключение до этой строки) оставляет прежний
+        источник загруженным.
+        """
+        self._require_stopped_task()
         if self._source is not None:
             self._source.close()
         self._source = source
@@ -129,9 +149,9 @@ class PlaybackService:
         self._status.update(
             loaded=True,
             source=source.name,
-            mapped_signals=len(source.columns),
-            unmatched_columns=len(source.unmatched),
-            ambiguous=len(source.ambiguous),
+            mapped_signals=mapped_signals,
+            unmatched_columns=unmatched_columns,
+            ambiguous=ambiguous,
         )
         return self.status()
 
@@ -143,6 +163,33 @@ class PlaybackService:
         self._holds = False
         self._status = self._fresh_status()
         return self.status()
+
+    def load_archive(
+        self,
+        archive_path: str,
+        *,
+        signal_ids: Optional[List[str]] = None,
+        start_us: Optional[int] = None,
+        end_us: Optional[int] = None,
+        max_changes: int,
+    ) -> Dict[str, Any]:
+        """Загрузить окно SQLite-архива станции; метки времени — исходные.
+
+        Отсчёты на каждый такт записи (не только изменения) — дедупликацию
+        делает проход, как для XLSX. ``bad``-качество в шину не идёт и
+        считается в статусе источника.
+        """
+        try:
+            source = open_archive(
+                archive_path,
+                signal_ids=signal_ids,
+                start_us=start_us,
+                end_us=end_us,
+                max_changes=max_changes,
+            )
+        except ArchiveError as exc:
+            raise PlaybackError(exc.code, exc.message)
+        return self.load_from(source, mapped_signals=len(source.signal_ids))
 
     @property
     def loaded(self) -> bool:

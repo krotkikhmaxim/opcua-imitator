@@ -5,6 +5,7 @@ import EmergencyButtons from './components/mnemo/EmergencyButtons'
 import MnemoPanel from './components/mnemo/MnemoPanel'
 import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream } from './components/mnemo/useSignalStream'
+import ArchivePlaybackPanel from './components/playback/ArchivePlaybackPanel'
 import PlaybackPanel from './components/playback/PlaybackPanel'
 import SchematicView from './components/schematic/SchematicView'
 import StationEchoPanel from './components/station/StationEchoPanel'
@@ -329,6 +330,7 @@ export default function App() {
           <div className="mnemo-side">
             <EmergencyButtons onNotify={showStatus} />
             <PlaybackPanel onNotify={showStatus} />
+            <ArchivePlaybackPanel onNotify={showStatus} />
             {bridgeError && <div className="signals-status signals-status-err">{bridgeError}</div>}
             {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
             <MnemoPanel

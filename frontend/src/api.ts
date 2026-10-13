@@ -3,11 +3,13 @@ import {
   HeartbeatResponse,
   ImportResponse,
   JournalEntry,
+  LoadArchiveRequest,
   LoadResponse,
   PlaybackStatus,
   SaveResponse,
   ScenarioDescribe,
   ScenarioStatus,
+  ArchiveSeriesResponse,
   SchematicBridge,
   StateInfo,
   StationBindingsResponse,
@@ -75,6 +77,13 @@ export const playbackApi = {
   control: (action: string, extra?: { rate?: number; seek_ms?: number }) =>
     api.post<PlaybackStatus>('/playback/control', { action, ...extra }).then((r) => r.data),
   unload: () => api.post<PlaybackStatus>('/playback/unload').then((r) => r.data),
+  loadArchive: (req: LoadArchiveRequest) =>
+    api.post<PlaybackStatus>('/playback/load_archive', req).then((r) => r.data),
+}
+
+// Архив станции: сводка серий для выбора окна плейбэка.
+export const archiveApi = {
+  series: () => api.get<ArchiveSeriesResponse>('/archive/series').then((r) => r.data),
 }
 
 export const scenariosApi = {
