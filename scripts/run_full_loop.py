@@ -1,17 +1,19 @@
 #!/usr/bin/env python
-"""Полный контур: сценарий → снапшот станции → расчёт → сверка.
+"""Полный контур: сценарий → снапшот станции в окне остановки → расчёт → сверка.
 
 Автоматизирует то, что оператор делает руками из веб-интерфейса:
 
   1. убедиться, что станция отвечает за прокси имитатора;
   2. запустить один эпизод сценария (по умолчанию ``estop_console``);
-  3. дождаться фазы ``stopped``;
+  3. дождаться фазы ``stopped`` — машина стоит, причина ещё нажата
+     (окно HOLD_MS = 20 с; после восстановления причина уйдёт и сверка
+     причины стала бы ложным расхождением);
   4. взять последнюю запись журнала правды и попросить сверку —
      снапшот станции (live_batch), расчёт и отчёт;
   5. напечатать сводку.
 
 Код возврата 0 только при ``verdict: pass``; 1 — расхождение; 2 — контур
-не собрался (станция недоступна, сценарий не запустился, таймаут).
+не собрался (станция недоступна, сценарий не запустился, окно пропущено).
 Один и тот же SEED даёт один и тот же прогон.
 
 Пример: ``make loop SEED=7`` или
@@ -66,6 +68,8 @@ def require_station(api: str) -> None:
     try:
         call(api, "GET", "/api/station/health", timeout=10)
     except LoopError as exc:
+        if exc.code == "api_error":
+            raise  # станция ответила ошибкой — покажем её, а не «недоступна»
         raise LoopError(
             "station_unreachable",
             "станция не отвечает за прокси имитатора — поднимите её (make install-stack "
@@ -73,17 +77,28 @@ def require_station(api: str) -> None:
         ) from exc
 
 
-def wait_stopped(api: str, deadline_s: float) -> Dict:
+def wait_stopped_window(api: str, deadline_s: float) -> Dict:
+    """Дождаться фазы ``stopped``: единственное окно, в котором честно сверять.
+
+    К концу прогона (``finished``) причина уже восстановлена — снапшот
+    против неё был бы ложным расхождением. Окно держится 20 секунд
+    (HOLD_MS), опрос каждые полсекунды успевает в него с запасом.
+    """
     started = time.monotonic()
-    last: Dict = {}
     while time.monotonic() - started < deadline_s:
-        last = call(api, "GET", "/api/scenarios/status")
-        if last.get("error"):
-            raise LoopError("scenario_error", f"сценарий ответил ошибкой: {last['error']}")
-        if not last.get("running"):
-            return last
+        status = call(api, "GET", "/api/scenarios/status")
+        if status.get("error"):
+            raise LoopError("scenario_error", f"сценарий ответил ошибкой: {status['error']}")
+        if status.get("phase") == "stopped":
+            return status
+        if not status.get("running"):
+            raise LoopError(
+                "missed_window",
+                "сценарий закончился, не попав в окно stopped — "
+                "снимайте снапшот в окне (20 с после остановки машины)",
+            )
         time.sleep(POLL_S)
-    raise LoopError("timeout", f"сценарий не остановился за {deadline_s:.0f} с (фаза {last.get('phase')})")
+    raise LoopError("timeout", f"фаза stopped не наступила за {deadline_s:.0f} с")
 
 
 def main() -> int:
@@ -105,8 +120,8 @@ def main() -> int:
         )
         print(f"2/4  сценарий {args.kind} запущен (seed {started.get('seed')})")
 
-        status = wait_stopped(args.api, STOP_TIMEOUT_S)
-        print(f"3/4  сценарий остановлен (эпизод {status.get('episode')}, запись {status.get('writes')})")
+        status = wait_stopped_window(args.api, STOP_TIMEOUT_S)
+        print(f"3/4  машина стоит (эпизод {status.get('episode')}, запись {status.get('writes')}) — окно сверки")
 
         journal = call(args.api, "GET", "/api/scenarios/journal?limit=1")
         if not journal:
