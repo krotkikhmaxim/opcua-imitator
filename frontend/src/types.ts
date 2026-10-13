@@ -263,3 +263,44 @@ export interface VerificationListResponse {
   items: VerificationListItem[]
   total: number
 }
+
+// -- схема Э3 (листы станции через прокси + мост DT→сигналы) ------------------
+
+/** Аппарат моста ``stand.schematic-bridge.v1``: сигналы стенда и точки листов. */
+export interface SchematicBridgeDevice {
+  signals: string[]
+  /** Номер листа → [x%, y%] бейджа (доли ширины/высоты листа). */
+  sheets: Record<string, [number, number]>
+}
+
+export interface SchematicBridgeUnmatched {
+  signal_id: string
+  reason: 'no_designator' | 'not_on_sheets'
+  dt: string | null
+}
+
+export interface SchematicBridge {
+  schema: string
+  devices: Record<string, SchematicBridgeDevice>
+  unmatched_signals: SchematicBridgeUnmatched[]
+  coverage: {
+    signals_total: number
+    signals_matched: number
+    devices: number
+    sheets: number
+  }
+}
+
+/** Строка списка листов станции (SchematicPageBrief, src/api/schematic.py). */
+export interface StationSchematicPageBrief {
+  number: number
+  sheet_designation?: string
+  description?: string
+  has_raster?: boolean
+  [key: string]: unknown
+}
+
+export interface StationSchematicPagesResponse {
+  count: number
+  pages: StationSchematicPageBrief[]
+}

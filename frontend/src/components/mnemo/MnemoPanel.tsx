@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, MouseEvent as ReactMouseEvent } from 'react'
 import { signalsApi } from '../../api'
 import { Signal } from '../../types'
 import './MnemoPanel.css'
@@ -18,6 +18,10 @@ interface Props {
   signals: Signal[]
   driverActive: boolean
   showStatus: (kind: 'ok' | 'err', text: string) => void
+  /** Сигнал → обозначение аппарата Э3 (мост); включает выбор аппарата кликом. */
+  deviceBySignal?: Record<string, string>
+  selectedDevice?: string | null
+  onSelectDevice?: (dt: string | null) => void
 }
 
 function isBool(signal: Signal): boolean {
@@ -31,14 +35,28 @@ function formatValue(signal: Signal): string {
   return String(v)
 }
 
-export default function MnemoPanel({ signals, driverActive, showStatus }: Props) {
+export default function MnemoPanel({
+  signals,
+  driverActive,
+  showStatus,
+  deviceBySignal,
+  selectedDevice,
+  onSelectDevice,
+}: Props) {
   const [direction, setDirection] = useState<DirectionFilter>('all')
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
+  // Выбран аппарат и показываем весь список (по умолчанию — только его сигналы).
+  const [showAll, setShowAll] = useState(false)
 
-  const filtered = useMemo(
-    () => (direction === 'all' ? signals : signals.filter((s) => s.direction === direction)),
-    [signals, direction],
-  )
+  const scoped = useMemo(() => {
+    if (!selectedDevice) return signals
+    return signals.filter((s) => deviceBySignal?.[s.id] === selectedDevice)
+  }, [signals, selectedDevice, deviceBySignal])
+
+  const filtered = useMemo(() => {
+    const base = selectedDevice && showAll ? signals : scoped
+    return direction === 'all' ? base : base.filter((s) => s.direction === direction)
+  }, [scoped, signals, direction, selectedDevice, showAll])
 
   const groups = useMemo(() => {
     const byCabinet = new Map<string, Signal[]>()
@@ -91,6 +109,26 @@ export default function MnemoPanel({ signals, driverActive, showStatus }: Props)
             Идёт драйвер — тумблеры заблокированы
           </span>
         )}
+        {selectedDevice && (
+          <span className="mnemo-device-chip">
+            Аппарат {selectedDevice} · {scoped.length}
+            <button
+              type="button"
+              className="mnemo-device-chip-btn"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? 'только аппарат' : 'показать все'}
+            </button>
+            <button
+              type="button"
+              className="mnemo-device-chip-btn"
+              onClick={() => onSelectDevice?.(null)}
+              title="Снять выбор аппарата"
+            >
+              ✕
+            </button>
+          </span>
+        )}
       </div>
 
       {groups.map(([cabinet, list]) => (
@@ -102,6 +140,21 @@ export default function MnemoPanel({ signals, driverActive, showStatus }: Props)
           <div className="mnemo-grid">
             {list.map((s) => {
               const on = Boolean(s.value)
+              const device = deviceBySignal?.[s.id]
+              const nameClick =
+                device && onSelectDevice
+                  ? (e: ReactMouseEvent) => {
+                      e.stopPropagation()
+                      onSelectDevice(device === selectedDevice ? null : device)
+                    }
+                  : undefined
+              const nameProps = {
+                className: `mnemo-badge-name${device ? ' mnemo-badge-name-link' : ''}`,
+                title: device
+                  ? `Аппарат ${device} — показать на схеме Э3`
+                  : s.logic || s.name,
+                onClick: nameClick,
+              }
               if (isBool(s)) {
                 const toggleable = s.writable
                 return (
@@ -115,14 +168,14 @@ export default function MnemoPanel({ signals, driverActive, showStatus }: Props)
                     onClick={() => toggle(s)}
                     title={toggleable && !driverActive ? 'Нажмите, чтобы переключить' : s.logic || s.name}
                   >
-                    <span className="mnemo-badge-name">{s.name}</span>
+                    <span {...nameProps}>{s.name}</span>
                     <span className="mnemo-badge-value">{on ? 'ВКЛ' : 'ОТКЛ'}</span>
                   </button>
                 )
               }
               return (
                 <div key={s.id} className={`mnemo-badge mnemo-badge-num${on || s.value ? '' : ' mnemo-zero'}`}>
-                  <span className="mnemo-badge-name">{s.name}</span>
+                  <span {...nameProps}>{s.name}</span>
                   <span className="mnemo-badge-value mnemo-mono">{formatValue(s)}</span>
                 </div>
               )

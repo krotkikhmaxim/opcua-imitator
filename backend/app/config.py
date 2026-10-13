@@ -29,6 +29,12 @@ class Settings:
     STATION_URL: str = os.getenv("STATION_URL", "http://127.0.0.1:8080")
     STATION_TIMEOUT_S: float = float(os.getenv("STATION_TIMEOUT_S", "5"))
     STATION_PROJECT_ID: str = os.getenv("STATION_PROJECT_ID", "124_NSH2_PS")
+    # Мост «обозначение Э3 → сигналы стенда» (stand.schematic-bridge.v1): его
+    # строит scripts/build_schematic_bridge.py по каталогу листов станции.
+    SCHEMATIC_BRIDGE_PATH: str = os.getenv(
+        "SCHEMATIC_BRIDGE_PATH",
+        str(Path(__file__).resolve().parent.parent / "configs" / "schematic_bridge.json"),
+    )
     TIME_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_VERSION: str = "1.0"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024

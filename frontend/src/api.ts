@@ -8,9 +8,11 @@ import {
   SaveResponse,
   ScenarioDescribe,
   ScenarioStatus,
+  SchematicBridge,
   StateInfo,
   StationBindingsResponse,
   StationSnapshotInfo,
+  StationSchematicPagesResponse,
   VerificationListResponse,
   VerificationReport,
   WriteBatchResponse,
@@ -114,4 +116,14 @@ export const verificationApi = {
       .then((r) => r.data),
   list: () =>
     api.get<VerificationListResponse>('/verification/list').then((r) => r.data),
+}
+
+// Схема Э3: мост — своя ручка имитатора, список листов и растр — прокси станции
+// (у станции CORS нет, фронт в её /api/schematic не ходит; растр строится прямо
+// по известному формату raster_url станции, с префиксом прокси).
+export const schematicApi = {
+  bridge: () => api.get<SchematicBridge>('/schematic/bridge').then((r) => r.data),
+  pages: () =>
+    api.get<StationSchematicPagesResponse>('/station/schematic/pages').then((r) => r.data),
+  rasterUrl: (page: number) => `/api/station/schematic/pages/${page}/raster`,
 }

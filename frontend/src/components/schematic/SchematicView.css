@@ -1,0 +1,159 @@
+.sch {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+
+.sch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sch-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.sch-sheets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 64px;
+  overflow-y: auto;
+}
+
+.sch-sheet {
+  padding: 3px 8px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.sch-sheet:hover {
+  border-color: #9ca3af;
+}
+
+.sch-sheet-on {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #ffffff;
+}
+
+.sch-sheet-title {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.sch-canvas {
+  position: relative;
+  align-self: flex-start;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.sch-raster {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  width: auto;
+  height: auto;
+}
+
+.sch-empty {
+  padding: 24px;
+  font-size: 13px;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
+  border-radius: 10px;
+  text-align: center;
+}
+
+/* Бейдж аппарата: проценты из моста, центр точки — якорь. */
+.sch-badge {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 7px;
+  border: 1px solid rgba(31, 41, 55, 0.55);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font: inherit;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.sch-badge:hover {
+  border-color: #6366f1;
+}
+
+.sch-badge-selected {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45);
+}
+
+.sch-badge-dt {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1f2937;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.sch-badge-values {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Дискретный сигнал — точка (серая выключен, зелёная включен). */
+.sch-sig {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d1d5db;
+  border: 1px solid #9ca3af;
+}
+
+.sch-sig-on {
+  background: #10b981;
+  border-color: #059669;
+}
+
+/* Аналоговый/текст — короткое значение вместо точки. */
+.sch-sig.sch-sig-text {
+  width: auto;
+  height: auto;
+  border: none;
+  background: none;
+  border-radius: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: #374151;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.sch-coverage {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+@media (max-width: 1100px) {
+  .sch {
+    position: static;
+    max-width: none;
+  }
+}

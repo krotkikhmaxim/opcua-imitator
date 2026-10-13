@@ -20,6 +20,7 @@ from app.api.scenario_routes import (
     set_scenario_engine,
 )
 from app.api.station_routes import router as station_router, set_station_proxy
+from app.api.schematic_routes import router as schematic_router
 from app.api.verification_routes import (
     router as verification_router,
     set_verification_services,
@@ -99,6 +100,8 @@ app.include_router(playback_router)
 _station_proxy = StationProxy(settings.STATION_URL, timeout_s=settings.STATION_TIMEOUT_S)
 set_station_proxy(_station_proxy)
 app.include_router(station_router)
+# Мост «обозначение Э3 → сигналы» — read-only раздача готового артефакта.
+app.include_router(schematic_router)
 # Сверка с журналом правды: тот же журнал записей (ожидаемое состояние на
 # момент остановки); прокси сверка берёт актуальный у station_routes.
 set_verification_services(_ledger)

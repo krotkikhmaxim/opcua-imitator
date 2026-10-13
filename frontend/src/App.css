@@ -116,6 +116,25 @@
   margin-top: 24px;
 }
 
+/* Мнемо-вкладка: схема Э3 слева (липкая при прокрутке), панели справа. */
+.mnemo-layout {
+  margin-top: 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.mnemo-side {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .mnemo-layout {
+    flex-direction: column;
+  }
+}
+
 .signals-head {
   display: flex;
   align-items: center;

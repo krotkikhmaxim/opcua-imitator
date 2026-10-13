@@ -6,9 +6,10 @@ import MnemoPanel from './components/mnemo/MnemoPanel'
 import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream } from './components/mnemo/useSignalStream'
 import PlaybackPanel from './components/playback/PlaybackPanel'
+import SchematicView from './components/schematic/SchematicView'
 import StationEchoPanel from './components/station/StationEchoPanel'
-import { heartbeatApi, signalsApi } from './api'
-import { HeartbeatResponse, Signal } from './types'
+import { heartbeatApi, schematicApi, signalsApi } from './api'
+import { HeartbeatResponse, SchematicBridge, Signal } from './types'
 import './App.css'
 
 interface SignalsResponse {
@@ -61,6 +62,11 @@ export default function App() {
   const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
   const [heartbeatBusy, setHeartbeatBusy] = useState(false)
   const [tab, setTab] = useState<Tab>('mnemo')
+  // Мост «обозначение Э3 → сигналы»: карта сигнал→аппарат и выбранный аппарат
+  // (клик по бейджу схемы подсвечивает его сигналы в мнемо и наоборот).
+  const [bridge, setBridge] = useState<SchematicBridge | null>(null)
+  const [bridgeError, setBridgeError] = useState<string | null>(null)
+  const [selectedDevice, setSelectedDevice] = useState<string | null>(null)
   const statusTimer = useRef<number | null>(null)
 
   const applyDeltas = useCallback((changes: Record<string, unknown>) => {
@@ -119,6 +125,35 @@ export default function App() {
     if (statusTimer.current) window.clearTimeout(statusTimer.current)
     statusTimer.current = window.setTimeout(() => setStatus(null), 5000)
   }, [])
+
+  // Мост читается один раз; его нет (не собран) — схема не показывается,
+  // а остальной UI живёт как прежде.
+  useEffect(() => {
+    schematicApi
+      .bridge()
+      .then((b) => {
+        setBridge(b)
+        setBridgeError(null)
+      })
+      .catch((e) => {
+        const code = e?.response?.data?.detail?.code
+        setBridgeError(
+          code === 'bridge_not_built'
+            ? 'Мост схема↔сигналы не собран (scripts/build_schematic_bridge.py)'
+            : 'Мост схема↔сигналы недоступен',
+        )
+      })
+  }, [])
+
+  const deviceBySignal = useMemo(() => {
+    const map: Record<string, string> = {}
+    if (bridge) {
+      for (const [dt, dev] of Object.entries(bridge.devices)) {
+        for (const id of dev.signals) map[id] = dt
+      }
+    }
+    return map
+  }, [bridge])
 
   // Состояние heartbeat инициализируется из backend, а не хранится локально
   useEffect(() => {
@@ -282,14 +317,32 @@ export default function App() {
       <RecordedModesPanel onModeChanged={refreshSignals} />
 
       {tab === 'mnemo' && (
-        <section className="signals-panel">
-          <EmergencyButtons onNotify={showStatus} />
-          <PlaybackPanel onNotify={showStatus} />
-          {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
-          <MnemoPanel signals={signals} driverActive={driverActive} showStatus={showStatus} />
-          <TruthJournalPanel />
-          <StationEchoPanel />
-        </section>
+        <div className="mnemo-layout">
+          {bridge && (
+            <SchematicView
+              signals={signals}
+              bridge={bridge}
+              selectedDevice={selectedDevice}
+              onSelectDevice={setSelectedDevice}
+            />
+          )}
+          <div className="mnemo-side">
+            <EmergencyButtons onNotify={showStatus} />
+            <PlaybackPanel onNotify={showStatus} />
+            {bridgeError && <div className="signals-status signals-status-err">{bridgeError}</div>}
+            {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
+            <MnemoPanel
+              signals={signals}
+              driverActive={driverActive}
+              showStatus={showStatus}
+              deviceBySignal={deviceBySignal}
+              selectedDevice={selectedDevice}
+              onSelectDevice={setSelectedDevice}
+            />
+            <TruthJournalPanel />
+            <StationEchoPanel />
+          </div>
+        </div>
       )}
 
       {tab === 'table' && (
