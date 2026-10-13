@@ -16,6 +16,12 @@ class Settings:
     SCENARIO_JOURNAL_PATH: str = os.getenv("SCENARIO_JOURNAL_PATH", "scenario_runs/journal.jsonl")
     # WS-фид дельт значений: интервал рассылки в секундах; 0 отключает фид.
     VALUES_FEED_INTERVAL_S: float = float(os.getenv("VALUES_FEED_INTERVAL_S", "0.5"))
+    # Плейбэк XLSX-трендов: лимит размера файла (экспорт владельца — сотни
+    # мегабайт) и лимит прямой загрузки через HTTP (большие файлы — по пути
+    # сервер-сайд, PLAYBACK_UPLOAD_DIR).
+    PLAYBACK_MAX_BYTES: int = int(os.getenv("PLAYBACK_MAX_BYTES", 1024 * 1024 * 1024))
+    PLAYBACK_UPLOAD_MAX_BYTES: int = int(os.getenv("PLAYBACK_UPLOAD_MAX_BYTES", 50 * 1024 * 1024))
+    PLAYBACK_UPLOAD_DIR: str = os.getenv("PLAYBACK_UPLOAD_DIR", "playback_uploads")
     TIME_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_VERSION: str = "1.0"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024

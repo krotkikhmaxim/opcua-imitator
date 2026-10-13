@@ -4,3 +4,4 @@ asyncua>=1.1
 python-multipart>=0.0.9
 pytest>=7.0
 httpx>=0.24
+openpyxl>=3.1

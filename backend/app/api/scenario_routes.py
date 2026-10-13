@@ -76,6 +76,11 @@ async def _after_activity_change() -> None:
         await _gate.refresh()
 
 
+async def refresh_activity_gate() -> None:
+    """Публичный хелпер для других драйверов (плейбэк): пересчитать шлюз."""
+    await _after_activity_change()
+
+
 def _engine() -> ScenarioEngine:
     if _holder.engine is None:
         raise HTTPException(status_code=503, detail="Сценарии не инициализированы")

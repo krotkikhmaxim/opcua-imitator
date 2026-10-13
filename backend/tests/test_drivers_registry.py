@@ -39,11 +39,16 @@ def _isolate_shared_driver_state():
 
     Соседние файлы (test_recorded_modes, test_states) опираются на движок,
     установленный main при импорте, — оставлять после себя фейк нельзя.
+    Драйвер «playback» не снимается, а перерегистрируется: его предикат
+    (bus_held сервиса плейбэка) нужен соседним файлам — без него ручная
+    запись перестаёт видеть идущий плейбэк.
     """
+    from app.main import _playback
+
     original_engine = get_scenario_engine()
     yield
     set_scenario_engine(original_engine)
-    _registry.unregister("playback")
+    _registry.register("playback", lambda: _playback.bus_held)
 
 
 class FakeHeartbeat:

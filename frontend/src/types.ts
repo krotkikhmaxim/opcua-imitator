@@ -133,3 +133,21 @@ export interface JournalEntry {
   cause_visible_after_stop: boolean
   expected_answer: string
 }
+
+export interface PlaybackStatus {
+  loaded: boolean
+  source: string | null
+  phase: string
+  mapped_signals: number
+  unmatched_columns: number
+  ambiguous: number
+  position_ms: number
+  duration_ms: number | null
+  rate: number
+  paused: boolean
+  rows_played: number
+  writes: number
+  write_failures: number
+  max_lag_ms: number
+  error: string | null
+}

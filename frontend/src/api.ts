@@ -4,6 +4,7 @@ import {
   ImportResponse,
   JournalEntry,
   LoadResponse,
+  PlaybackStatus,
   SaveResponse,
   ScenarioDescribe,
   ScenarioStatus,
@@ -50,6 +51,24 @@ export const heartbeatApi = {
   get: () => api.get<HeartbeatResponse>('/heartbeat').then((r) => r.data),
   set: (enabled: boolean) =>
     api.put<HeartbeatResponse>('/heartbeat', { enabled }).then((r) => r.data),
+}
+
+export const playbackApi = {
+  status: () => api.get<PlaybackStatus>('/playback/status').then((r) => r.data),
+  loadPath: (path: string) =>
+    api.post<PlaybackStatus>('/playback/load_path', { path }).then((r) => r.data),
+  upload: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api
+      .post<PlaybackStatus>('/playback/load', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
+  control: (action: string, extra?: { rate?: number; seek_ms?: number }) =>
+    api.post<PlaybackStatus>('/playback/control', { action, ...extra }).then((r) => r.data),
+  unload: () => api.post<PlaybackStatus>('/playback/unload').then((r) => r.data),
 }
 
 export const scenariosApi = {

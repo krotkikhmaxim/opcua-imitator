@@ -1,0 +1,162 @@
+.pb {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.pb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pb-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.pb-phase {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.pb-phase-paused {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.pb-phase-error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.pb-load {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.pb-path {
+  flex: 1;
+  min-width: 240px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+}
+
+.pb-load button {
+  padding: 7px 14px;
+  font-size: 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.pb-load button:hover:not(:disabled) {
+  border-color: #9ca3af;
+}
+
+.pb-load button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pb-info {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.pb-source {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.pb-meta {
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.pb-err {
+  font-size: 13px;
+  color: #991b1b;
+  background: #fef2f2;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+
+.pb-transport {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pb-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.pb-btn:hover:not(:disabled) {
+  border-color: #9ca3af;
+}
+
+.pb-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pb-btn-main {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #ffffff;
+}
+
+.pb-btn-ghost {
+  font-weight: 400;
+}
+
+.pb-rate,
+.pb-seek {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.pb-rate select,
+.pb-seek input {
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.pb-seek input {
+  width: 70px;
+}

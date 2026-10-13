@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.api.playback_routes import router as playback_router, set_playback_service
 from app.api.routes import router, set_services
 from app.api.scenario_routes import (
     ensure_manual_writes_allowed,
@@ -22,6 +23,7 @@ from app.config import load_signal_config, settings
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
+from app.services.playback.service import PlaybackService
 from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
 from app.services.signal_cache import SignalCache
@@ -76,6 +78,16 @@ set_gate(_gate)
 _registry.register(
     "scenario", lambda: (engine.running if (engine := get_scenario_engine()) else False)
 )
+# Плейбэк трендов пишет через тот же обёрнутый журналом writer, что и
+# сценарий: одна дверь записи, один журнал для сверки. В реестре он держит
+# шину от запуска до остановки/финала — пауза шину не отпускает.
+_playback = PlaybackService(_ledger.wrap(_bus.write_value_at))
+_registry.register("playback", lambda: _playback.bus_held)
+set_playback_service(
+    _playback, lambda: {cfg["id"]: cfg for cfg in _cache.config},
+    upload_dir=Path(settings.PLAYBACK_UPLOAD_DIR),
+)
+app.include_router(playback_router)
 # WS-фид дельт: тот же реестр (смена активного драйвера уходит в WS) и тот же
 # шлюз (тик пересчитывает heartbeat, если драйвер остановился мимо маршрута).
 _values_feed = ValuesFeed(
