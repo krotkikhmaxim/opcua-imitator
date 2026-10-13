@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RecordedModesPanel from './components/RecordedModesPanel'
 import StateManager from './components/StateManager'
+import EmergencyButtons from './components/mnemo/EmergencyButtons'
+import MnemoPanel from './components/mnemo/MnemoPanel'
+import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
+import { useSignalStream } from './components/mnemo/useSignalStream'
 import { heartbeatApi, signalsApi } from './api'
 import { HeartbeatResponse, Signal } from './types'
 import './App.css'
@@ -8,6 +12,8 @@ import './App.css'
 interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
+
+type Tab = 'mnemo' | 'table'
 
 type DraftValue = string | boolean
 
@@ -52,7 +58,21 @@ export default function App() {
   const [applying, setApplying] = useState(false)
   const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
   const [heartbeatBusy, setHeartbeatBusy] = useState(false)
+  const [tab, setTab] = useState<Tab>('mnemo')
   const statusTimer = useRef<number | null>(null)
+
+  const applyDeltas = useCallback((changes: Record<string, unknown>) => {
+    setSignals((prev) =>
+      prev.map((s) =>
+        Object.prototype.hasOwnProperty.call(changes, s.id)
+          ? { ...s, value: changes[s.id] as Signal['value'] }
+          : s,
+      ),
+    )
+  }, [])
+
+  const { connected: streamConnected, activeDrivers } = useSignalStream(applyDeltas)
+  const driverActive = activeDrivers.length > 0
 
   const refreshSignals = useCallback(async () => {
     try {
@@ -211,24 +231,64 @@ export default function App() {
             <h1>ОПК UA — Мониторинг подъёмной машины</h1>
             <p className="app-subtitle">Входные сигналы ПЛК и слова PROFIBUS · сохранение и загрузка состояний</p>
           </div>
-          {heartbeat && heartbeat.supported && (
-            <button
-              type="button"
-              className={`heartbeat-toggle${heartbeat.enabled ? ' heartbeat-toggle-on' : ''}`}
-              disabled={heartbeatBusy}
-              onClick={toggleHeartbeat}
-              title="Heartbeat: циклическая перезапись значений с обновлением SourceTimestamp (1 раз/сек)"
+          <div className="app-header-badges">
+            <span
+              className={`app-conn app-conn-${streamConnected ? 'live' : 'poll'}`}
+              title={streamConnected ? 'Живые значения по WebSocket' : 'WebSocket недоступен — значения по опросу'}
             >
-              Heartbeat: {heartbeatBusy ? '…' : heartbeat.enabled ? 'ON' : 'OFF'}
-            </button>
-          )}
+              {streamConnected ? 'live' : 'опрос'}
+            </span>
+            {driverActive && (
+              <span className="app-driver" title={`Активный драйвер: ${activeDrivers.join(', ')}`}>
+                драйвер: {activeDrivers.join(', ')}
+              </span>
+            )}
+            {heartbeat && heartbeat.supported && (
+              <button
+                type="button"
+                className={`heartbeat-toggle${heartbeat.enabled ? ' heartbeat-toggle-on' : ''}`}
+                disabled={heartbeatBusy}
+                onClick={toggleHeartbeat}
+                title="Heartbeat: циклическая перезапись значений с обновлением SourceTimestamp (1 раз/сек)"
+              >
+                Heartbeat: {heartbeatBusy ? '…' : heartbeat.enabled ? 'ON' : 'OFF'}
+              </button>
+            )}
+          </div>
         </div>
       </header>
+
+      <div className="app-tabs">
+        <button
+          type="button"
+          className={`app-tab${tab === 'mnemo' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('mnemo')}
+        >
+          Мнемосхема
+        </button>
+        <button
+          type="button"
+          className={`app-tab${tab === 'table' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('table')}
+        >
+          Таблица сигналов
+        </button>
+      </div>
 
       <StateManager onStateLoaded={handleStateLoaded} />
 
       <RecordedModesPanel onModeChanged={refreshSignals} />
 
+      {tab === 'mnemo' && (
+        <section className="signals-panel">
+          <EmergencyButtons onNotify={showStatus} />
+          {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
+          <MnemoPanel signals={signals} driverActive={driverActive} showStatus={showStatus} />
+          <TruthJournalPanel />
+        </section>
+      )}
+
+      {tab === 'table' && (
       <section className="signals-panel">
         <div className="signals-head">
           <h2>Входные сигналы</h2>
@@ -321,6 +381,7 @@ export default function App() {
           </div>
         )}
       </section>
+      )}
     </div>
   )
 }

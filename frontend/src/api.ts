@@ -2,6 +2,7 @@ import axios from 'axios'
 import {
   HeartbeatResponse,
   ImportResponse,
+  JournalEntry,
   LoadResponse,
   SaveResponse,
   ScenarioDescribe,
@@ -54,6 +55,8 @@ export const heartbeatApi = {
 export const scenariosApi = {
   describe: () => api.get<ScenarioDescribe>('/scenarios').then((r) => r.data),
   status: () => api.get<ScenarioStatus>('/scenarios/status').then((r) => r.data),
+  journal: (limit = 50) =>
+    api.get<JournalEntry[]>(`/scenarios/journal?limit=${limit}`).then((r) => r.data),
   startMode: (mode: string) =>
     api.post<ScenarioStatus>('/scenarios/start', { mode }).then((r) => r.data),
   startKinds: (kinds: string[], once = true) =>

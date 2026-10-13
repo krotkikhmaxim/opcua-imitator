@@ -1,0 +1,111 @@
+.tj {
+  margin-top: 16px;
+}
+
+.tj-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tj-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.tj-sub {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.tj-refresh {
+  margin-left: auto;
+  padding: 5px 12px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.tj-refresh:hover {
+  border-color: #9ca3af;
+}
+
+.tj-err {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #991b1b;
+  background: #fef2f2;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.tj-table-wrap {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.tj-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tj-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #6b7280;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tj-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: top;
+}
+
+.tj-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tj-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tj-kind {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.tj-kind-fault {
+  color: #991b1b;
+}
+
+.tj-meta {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.tj-cause {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.tj-cause-name {
+  color: #374151;
+}
+
+.tj-none {
+  color: #9ca3af;
+}

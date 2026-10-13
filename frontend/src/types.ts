@@ -110,3 +110,26 @@ export interface ScenarioDescribe {
   assumptions: { signal_id: string; value: unknown; note: string }[]
   status: ScenarioStatus
 }
+
+export interface JournalCause {
+  signal_id: string
+  name: string | null
+  project_tag: string | null
+  before: unknown
+  after: unknown
+}
+
+export interface JournalEntry {
+  run_id: string
+  seed: number
+  episode: number
+  kind: string
+  title: string
+  fault: boolean
+  causes: JournalCause[]
+  cause_at: string
+  stopped_at: string
+  recovered_at: string
+  cause_visible_after_stop: boolean
+  expected_answer: string
+}
