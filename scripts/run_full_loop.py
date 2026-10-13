@@ -1,0 +1,141 @@
+#!/usr/bin/env python
+"""Полный контур: сценарий → снапшот станции → расчёт → сверка.
+
+Автоматизирует то, что оператор делает руками из веб-интерфейса:
+
+  1. убедиться, что станция отвечает за прокси имитатора;
+  2. запустить один эпизод сценария (по умолчанию ``estop_console``);
+  3. дождаться фазы ``stopped``;
+  4. взять последнюю запись журнала правды и попросить сверку —
+     снапшот станции (live_batch), расчёт и отчёт;
+  5. напечатать сводку.
+
+Код возврата 0 только при ``verdict: pass``; 1 — расхождение; 2 — контур
+не собрался (станция недоступна, сценарий не запустился, таймаут).
+Один и тот же SEED даёт один и тот же прогон.
+
+Пример: ``make loop SEED=7`` или
+``python scripts/run_full_loop.py --kind inverter_fault --seed 11``.
+"""
+
+import argparse
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from typing import Any, Dict, Optional
+
+DEFAULT_API = "http://127.0.0.1:8000"
+DEFAULT_KIND = "estop_console"
+STOP_TIMEOUT_S = 180.0
+POLL_S = 0.5
+
+
+class LoopError(Exception):
+    """Контур не собрался: код 2, продолжать не на чем."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def call(api: str, method: str, path: str, body: Optional[Dict] = None, timeout: float = 15.0) -> Any:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request = urllib.request.Request(
+        api.rstrip("/") + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = exc.reason
+        raise LoopError("api_error", f"{method} {path} → {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise LoopError("unreachable", f"{method} {path} → имитатор недоступен: {exc.reason}") from exc
+
+
+def require_station(api: str) -> None:
+    try:
+        call(api, "GET", "/api/station/health", timeout=10)
+    except LoopError as exc:
+        raise LoopError(
+            "station_unreachable",
+            "станция не отвечает за прокси имитатора — поднимите её (make install-stack "
+            "в репо станции) и проверьте STATION_URL",
+        ) from exc
+
+
+def wait_stopped(api: str, deadline_s: float) -> Dict:
+    started = time.monotonic()
+    last: Dict = {}
+    while time.monotonic() - started < deadline_s:
+        last = call(api, "GET", "/api/scenarios/status")
+        if last.get("error"):
+            raise LoopError("scenario_error", f"сценарий ответил ошибкой: {last['error']}")
+        if not last.get("running"):
+            return last
+        time.sleep(POLL_S)
+    raise LoopError("timeout", f"сценарий не остановился за {deadline_s:.0f} с (фаза {last.get('phase')})")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--api", default=DEFAULT_API, help="база имитатора")
+    parser.add_argument("--kind", default=DEFAULT_KIND, help="сценарий эпизода")
+    parser.add_argument("--seed", type=int, default=7, help="повторяемый прогон")
+    args = parser.parse_args()
+
+    try:
+        require_station(args.api)
+        print("1/4  станция отвечает")
+
+        started = call(
+            args.api,
+            "POST",
+            "/api/scenarios/start",
+            {"kinds": [args.kind], "once": True, "seed": args.seed},
+        )
+        print(f"2/4  сценарий {args.kind} запущен (seed {started.get('seed')})")
+
+        status = wait_stopped(args.api, STOP_TIMEOUT_S)
+        print(f"3/4  сценарий остановлен (эпизод {status.get('episode')}, запись {status.get('writes')})")
+
+        journal = call(args.api, "GET", "/api/scenarios/journal?limit=1")
+        if not journal:
+            raise LoopError("no_journal", "журнал правды пуст — эпизод не записан")
+        entry = journal[0]
+
+        report = call(args.api, "POST", "/api/verification/report", {"entry": entry}, timeout=120)
+    except LoopError as exc:
+        print(f"ОШИБКА [{exc.code}]: {exc.message}", file=sys.stderr)
+        return 2
+
+    causes = report.get("cause_check", {}).get("counts", {})
+    state = report.get("state_check", {})
+    outputs = report.get("outputs") or {}
+    print(
+        f"4/4  сверка: причины {json.dumps(causes, ensure_ascii=False)}; "
+        f"состояние {state.get('value_matched')}/{state.get('present')} значений совпали, "
+        f"{state.get('missing')} отсутствуют; "
+        f"выходы станции {outputs.get('computed')}/{outputs.get('total')} (наблюдение)"
+    )
+    for verdict in report.get("cause_check", {}).get("verdicts", []):
+        print(
+            f"     причина {verdict.get('signal_id')}: {verdict.get('verdict')} "
+            f"(ожидалось {verdict.get('expected')!r}, в снапшоте {verdict.get('actual')!r})"
+        )
+    print(f"итог: {report.get('verdict')}")
+
+    return 0 if report.get("verdict") == "pass" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

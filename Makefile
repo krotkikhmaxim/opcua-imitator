@@ -27,7 +27,8 @@ SEED  ?=
 ONCE  ?= false
 
 .PHONY: help venv run heartbeat check test frontend frontend-build \
-	scenario scenario-stop scenario-status scenario-journal
+	scenario scenario-stop scenario-status scenario-journal scenario-mode \
+	playback playback-control loop station-check
 
 help:
 	@printf 'make venv   — создать backend/.venv и поставить зависимости\n'
@@ -36,6 +37,10 @@ help:
 	@printf 'make test   — pytest\n'
 	@printf 'make scenario [KINDS=a,b] [SEED=n] [ONCE=true] — пустить сценарии аварий\n'
 	@printf 'make scenario-stop / scenario-status / scenario-journal\n'
+	@printf 'make playback XLSX=/path/trend.xlsx — загрузить тренд для плейбэка\n'
+	@printf 'make playback-control ACTION=play|pause|resume|stop [RATE=n] [SEEK_MS=n]\n'
+	@printf 'make loop [SEED=7] [KIND=estop_console] — полный контур: сценарий → снапшот → сверка\n'
+	@printf 'make station-check — доступна ли станция за прокси\n'
 	@printf 'make frontend / frontend-build\n\n'
 	@printf 'HOST=%s PORT=%s MODE=%s\n' '$(HOST)' '$(PORT)' '$(if $(MODE),$(MODE),server)'
 
@@ -97,6 +102,32 @@ scenario-mode:
 	if [ -n '$(SEED)' ]; then body="$$body, \"seed\": $(SEED)"; fi; \
 	curl -fsS -m 5 -X POST $(API)/api/scenarios/start \
 		-H 'Content-Type: application/json' -d "$$body}"; echo
+
+# Плейбэк XLSX-тренда: большой файл владельца грузится по пути на сервере,
+# не через HTTP. Дальше транспорт — make playback-control ACTION=play…
+playback:
+	@test -n '$(XLSX)' || { echo "usage: make playback XLSX=/secure/path/trend.xlsx"; exit 2; }
+	@test -f '$(XLSX)' || { echo "нет файла: $(XLSX)" >&2; exit 1; }
+	@curl -fsS -m 600 -X POST $(API)/api/playback/load_path \
+		-H 'Content-Type: application/json' -d "{\"path\": \"$(XLSX)\"}"; echo
+
+playback-control:
+	@test -n '$(ACTION)' || { echo "usage: make playback-control ACTION=play"; exit 2; }
+	@body="{\"action\": \"$(ACTION)\""; \
+	if [ -n '$(RATE)' ]; then body="$$body, \"rate\": $(RATE)"; fi; \
+	if [ -n '$(SEEK_MS)' ]; then body="$$body, \"seek_ms\": $(SEEK_MS)"; fi; \
+	curl -fsS -m 600 -X POST $(API)/api/playback/control -H 'Content-Type: application/json' -d "$$body}"; echo
+
+# Полный контур: один эпизод сценария → снапшот станции → расчёт → сверка.
+# Код 0 только при verdict: pass (см. scripts/run_full_loop.py).
+loop:
+	@$(VENV)/bin/python scripts/run_full_loop.py --api $(API) --kind '$(if $(KIND),$(KIND),estop_console)' \
+		$(if $(SEED),--seed $(SEED),)
+
+station-check:
+	@curl -fsS -m 5 $(API)/api/station/health >/dev/null 2>&1 \
+		&& printf 'станция отвечает за прокси имитатора\n' \
+		|| { printf 'станция недоступна (STATION_URL, сейчас %s)\n' "$$(python3 -c 'import os; print(os.getenv("STATION_URL", "http://127.0.0.1:8080"))')" >&2; exit 1; }
 
 test: $(VENV)
 	cd backend && ./.venv/bin/python -m pytest -q
