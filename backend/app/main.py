@@ -17,6 +17,7 @@ from app.api.scenario_routes import (
     get_scenario_engine,
     router as scenario_router,
     set_gate,
+    set_playback_stop,
     set_registry,
     set_scenario_engine,
 )
@@ -95,6 +96,9 @@ set_playback_service(
     _playback, lambda: {cfg["id"]: cfg for cfg in _cache.config},
     upload_dir=Path(settings.PLAYBACK_UPLOAD_DIR),
 )
+# Применение сценария/режима останавливает идущий таймлайн сам, а не
+# отбивает запуск конфликтом 409: шину освобождает тот же service.stop().
+set_playback_stop(lambda: _playback.stop() if _playback.bus_held else None)
 app.include_router(playback_router)
 # Архив станции: сводка серий для окна плейбэка; read-only в принципе.
 app.include_router(archive_router)

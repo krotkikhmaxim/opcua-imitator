@@ -1,6 +1,6 @@
 """HTTP API сценариев: список, запуск, остановка, статус и журнал правды."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -43,6 +43,15 @@ def set_registry(registry: Optional[ValueDriverRegistry]) -> None:
 def set_gate(gate: Optional[HeartbeatGate]) -> None:
     global _gate
     _gate = gate
+
+
+_stop_playback: Optional[Callable[[], None]] = None
+
+
+def set_playback_stop(stop: Optional[Callable[[], None]]) -> None:
+    """Хук автостопа плейбэка: применение сценария останавливает таймлайн."""
+    global _stop_playback
+    _stop_playback = stop
 
 
 def ensure_manual_writes_allowed() -> None:
@@ -99,6 +108,8 @@ async def status() -> Dict[str, Any]:
 
 @router.post("/start")
 async def start(req: StartRequest) -> Dict[str, Any]:
+    if _stop_playback is not None:
+        _stop_playback()  # применение сценария/режима останавливает таймлайн
     _ensure_can_start("scenario")
     try:
         result = await _engine().start(

@@ -75,6 +75,9 @@ class ControlRequest(BaseModel):
     action: str
     rate: Optional[float] = None
     seek_ms: Optional[int] = None
+    # Участок прогона для play: от начала тренда (мс) до конца (включительно).
+    start_ms: Optional[int] = None
+    end_ms: Optional[int] = None
 
 
 @router.get("/status")
@@ -144,7 +147,7 @@ async def control(req: ControlRequest) -> Dict[str, Any]:
     service = _service_required()
     try:
         if req.action == "play":
-            result = service.play()
+            result = service.play(start_ms=req.start_ms or 0, end_ms=req.end_ms)
         elif req.action == "pause":
             result = service.pause()
         elif req.action == "resume":

@@ -189,6 +189,73 @@ def test_status_exposes_t0_of_loaded_source(tmp_path):
     asyncio.run(scenario())
 
 
+def test_play_restricts_to_window_between_start_and_end(tmp_path):
+    """Участок «начало–конец»: до начала — скан без записей, конец включителен."""
+    async def scenario():
+        path = _trend_path(tmp_path, _short_rows())
+        time, writer = VirtualTime(), FakeWriter()
+        svc = _service(time, writer)
+        svc.load(path, CONFIGS, max_bytes=1024 * 1024)
+        status = svc.play(start_ms=300, end_ms=900)
+        assert status["start_ms"] == 300
+        assert status["end_ms"] == 900
+        status = await _wait_phase(svc)
+        assert status["phase"] == "finished"
+        assert status["position_ms"] == 900  # строка конца написана
+        assert status["duration_ms"] == 900
+        assert status["rows_played"] == 4  # 2 строки скана + 2 участка
+        # значения на старте участка — текущим временем (семантика seek),
+        # дальше только изменения внутри участка
+        assert [r[0] for r in writer.rows] == [
+            "ch1-10a3-k1",
+            "profibus-motor-speed",
+            "profibus-motor-speed",
+        ]
+        assert [r[1] for r in writer.rows] == [True, 0, 1500]
+
+    asyncio.run(scenario())
+
+
+def test_play_holds_tempo_through_quiet_rows(tmp_path):
+    """Тихий участок (значения не меняются) идёт темпом тренда: строки ждут
+    своего момента, а не пролистываются мгновенно до конца окна. Ответ play
+    при этом не показывает «позицию от нулевой базы часов»."""
+
+    async def scenario():
+        rows = [
+            (T0, 0, 0),
+            ("23.03.2026 15:00:00.300", 0, 0),  # тишина
+            ("23.03.2026 15:00:00.600", 0, 0),  # тишина
+            ("23.03.2026 15:00:00.900", 1, 0),  # единственное изменение
+        ]
+        path = _trend_path(tmp_path, rows)
+        time, writer = VirtualTime(), FakeWriter()
+        svc = _service(time, writer)
+        svc.load(path, CONFIGS, max_bytes=1024 * 1024)
+        status = svc.play(end_ms=900)
+        assert status["position_ms"] == 0  # позиция от базы пуска, не от часов
+        status = await _wait_phase(svc)
+        assert status["phase"] == "finished"
+        assert status["position_ms"] == 900
+        # часы прошли 900 мс трендового времени, хотя менялся один сигнал
+        assert time.mono == pytest.approx(100.9, abs=1e-6)
+
+    asyncio.run(scenario())
+
+
+def test_play_rejects_window_end_not_after_start(tmp_path):
+    async def scenario():
+        path = _trend_path(tmp_path, _short_rows())
+        time, writer = VirtualTime(), FakeWriter()
+        svc = _service(time, writer)
+        svc.load(path, CONFIGS, max_bytes=1024 * 1024)
+        with pytest.raises(PlaybackError) as bad:
+            svc.play(start_ms=500, end_ms=500)
+        assert bad.value.code == "bad_window"
+
+    asyncio.run(scenario())
+
+
 def test_play_writes_only_changes_with_recorded_timestamps(tmp_path):
     async def scenario():
         path = _trend_path(tmp_path, _short_rows())

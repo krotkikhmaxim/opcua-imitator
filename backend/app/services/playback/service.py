@@ -81,6 +81,8 @@ class PlaybackService:
         self._offset_ms = 0.0
         self._t0_mono = 0.0
         self._duration_ms: Optional[int] = None
+        self._start_ms = 0
+        self._end_ms: Optional[int] = None
         self._status: Dict[str, Any] = self._fresh_status()
 
     def _fresh_status(self) -> Dict[str, Any]:
@@ -88,6 +90,8 @@ class PlaybackService:
             "loaded": False,
             "source": None,
             "t0": None,
+            "start_ms": 0,
+            "end_ms": None,
             "phase": "idle",
             "mapped_signals": 0,
             "unmatched_columns": 0,
@@ -204,20 +208,39 @@ class PlaybackService:
 
     # -- управление ---------------------------------------------------------
 
-    def play(self) -> Dict[str, Any]:
+    def play(
+        self, start_ms: int = 0, end_ms: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Пустить прогон; ``start_ms``/``end_ms`` задают участок тренда.
+
+        Начало не из нуля доматывается сканом без записей (семантика seek),
+        значения на старте участка пишутся текущим wall-временем. Конец
+        включителен: строка ``end_ms`` пишется, дальше прогон завершается.
+        """
         if not self.loaded:
             raise PlaybackError("not_loaded", "Сначала загрузите файл тренда")
         if self._task is not None and not self._task.done():
             raise PlaybackError("already_running", "Плейбэк уже идёт")
+        if start_ms < 0:
+            raise PlaybackError(
+                "bad_position", "Начало участка не может быть отрицательным"
+            )
+        if end_ms is not None and end_ms <= start_ms:
+            raise PlaybackError("bad_window", "Конец участка должен быть позже начала")
         self._holds = True
         self._paused = False
         self._rate = 1.0
-        self._offset_ms = 0.0
+        self._offset_ms = float(start_ms)
+        self._t0_mono = self._monotonic()  # до первого status(): иначе позиция от нулевой базы
+        self._start_ms = int(start_ms)
+        self._end_ms = end_ms
         self._duration_ms = None
         self._status.update(
             phase="playing",
             paused=False,
             rate=1.0,
+            start_ms=self._start_ms,
+            end_ms=self._end_ms,
             rows_played=0,
             writes=0,
             write_failures=0,
@@ -344,6 +367,7 @@ class PlaybackService:
             last: Dict[str, Any] = {}
             pending: List[tuple] = []
             rows_played = 0
+            last_at_ms = base
             for at_ms, values in source.rows():
                 if self._stop_event.is_set():
                     return
@@ -362,23 +386,31 @@ class PlaybackService:
                     if signal_id not in last or last[signal_id] != value:
                         pending.append((moment, signal_id, value))
                         last[signal_id] = value
-                if pending:
-                    await self._pace(at_ms)
-                    if self._stop_event.is_set():
-                        return
-                    for moment, signal_id, value in pending:
-                        ok = await self._writer(signal_id, value, moment)
-                        self._status["writes"] += 1
-                        if not ok:
-                            self._status["write_failures"] += 1
-                    pending.clear()
+                # темп держит каждая строка, а не только изменившаяся:
+                # тихий участок должен идти реальным временем, иначе
+                # прогон доскакивает до конца окна мгновенно
+                await self._pace(at_ms)
+                if self._stop_event.is_set():
+                    return
+                for moment, signal_id, value in pending:
+                    ok = await self._writer(signal_id, value, moment)
+                    self._status["writes"] += 1
+                    if not ok:
+                        self._status["write_failures"] += 1
+                pending.clear()
                 rows_played += 1
                 self._status["rows_played"] = rows_played
                 self._status["position_ms"] = at_ms
                 self._duration_ms = at_ms
+                last_at_ms = at_ms
+                if self._end_ms is not None and at_ms >= self._end_ms:
+                    break  # конец участка включителен — строка end_ms написана
             if scanning:
                 # база за концом файла: значения на последней строке — на цель
                 await self._flush_target(last)
+            # финал: позиция — последняя сыгранная строка, а не база старта
+            self._offset_ms = float(last_at_ms)
+            self._status["position_ms"] = int(last_at_ms)
             self._status["phase"] = "finished"
             self._holds = False
         except asyncio.CancelledError:
