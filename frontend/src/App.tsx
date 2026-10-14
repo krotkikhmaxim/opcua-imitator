@@ -22,9 +22,10 @@ type Tab = 'emergency' | 'modes' | 'table'
 
 type SimMode = 'schematic' | 'mnemo'
 
-// Подача значений внутри «Сценариев и режимов»: динамически (прогон
-// тренда по таймлайну) или статически (загрузка сохранённого состояния).
-type ModesView = 'timeline' | 'states'
+// Два вида внутри «Сценариев и режимов»: таймлайн (прогон тренда по
+// реальному времени) и стат-режимы (синтетические эпизоды и записанные
+// режимы RecordedModesPanel, проигрываются в темпе).
+type ModesView = 'timeline' | 'modes'
 
 type DraftValue = string | boolean
 
@@ -340,15 +341,13 @@ export default function App() {
       </div>
 
       {/* Пульт состояний нужен там, где значениями управляют руками:
-          имитация аварий и таблица сигналов; в сценариях он живёт
-          отдельным видом «Статические состояния». */}
+          имитация аварий и таблица сигналов; на сценариях он не нужен. */}
       {(tab === 'emergency' || tab === 'table') && (
         <StateManager onStateLoaded={handleStateLoaded} />
       )}
 
       {tab === 'modes' && (
         <>
-          <RecordedModesPanel onModeChanged={refreshSignals} />
           <div className="sim-switch">
             <button
               type="button"
@@ -359,14 +358,14 @@ export default function App() {
             </button>
             <button
               type="button"
-              className={modesView === 'states' ? 'sim-switch-on' : ''}
-              onClick={() => setModesView('states')}
+              className={modesView === 'modes' ? 'sim-switch-on' : ''}
+              onClick={() => setModesView('modes')}
             >
-              Статические состояния
+              Статические режимы
             </button>
           </div>
           {modesView === 'timeline' && <TimelinePanel onNotify={showStatus} />}
-          {modesView === 'states' && <StateManager onStateLoaded={handleStateLoaded} />}
+          {modesView === 'modes' && <RecordedModesPanel onModeChanged={refreshSignals} />}
         </>
       )}
 
