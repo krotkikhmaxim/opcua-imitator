@@ -1,11 +1,8 @@
 .sch {
-  flex: 0 0 auto;
-  position: sticky;
-  top: 12px;
+  margin-top: 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 720px;
 }
 
 .sch-toolbar {
@@ -149,11 +146,4 @@
 .sch-coverage {
   font-size: 12px;
   color: #6b7280;
-}
-
-@media (max-width: 1100px) {
-  .sch {
-    position: static;
-    max-width: none;
-  }
 }
