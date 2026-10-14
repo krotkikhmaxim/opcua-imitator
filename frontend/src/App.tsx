@@ -18,9 +18,13 @@ interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
 
-type Tab = 'emergency' | 'modes' | 'table' | 'timeline'
+type Tab = 'emergency' | 'modes' | 'table'
 
 type SimMode = 'schematic' | 'mnemo'
+
+// Подача значений внутри «Сценариев и режимов»: динамически (прогон
+// тренда по таймлайну) или статически (загрузка сохранённого состояния).
+type ModesView = 'timeline' | 'states'
 
 type DraftValue = string | boolean
 
@@ -68,6 +72,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('emergency')
   // Режим внутри «Имитации аварий»: лист Э3 или панель мнемо.
   const [simMode, setSimMode] = useState<SimMode>('schematic')
+  // Вид подачи значений внутри «Сценариев и режимов».
+  const [modesView, setModesView] = useState<ModesView>('timeline')
   // Мост «обозначение Э3 → сигналы»: карта сигнал→аппарат и выбранный аппарат
   // (клик по бейджу схемы подсвечивает его сигналы в мнемо и наоборот).
   const [bridge, setBridge] = useState<SchematicBridge | null>(null)
@@ -331,25 +337,37 @@ export default function App() {
         >
           Имитация аварий
         </button>
-        <button
-          type="button"
-          className={`app-tab${tab === 'timeline' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('timeline')}
-        >
-          Таймлайн
-        </button>
       </div>
 
       {/* Пульт состояний нужен там, где значениями управляют руками:
-          имитация аварий и таблица сигналов; на сценариях он не нужен. */}
+          имитация аварий и таблица сигналов; в сценариях он живёт
+          отдельным видом «Статические состояния». */}
       {(tab === 'emergency' || tab === 'table') && (
         <StateManager onStateLoaded={handleStateLoaded} />
       )}
 
-      {tab === 'timeline' && <TimelinePanel onNotify={showStatus} />}
-
       {tab === 'modes' && (
-        <RecordedModesPanel onModeChanged={refreshSignals} />
+        <>
+          <RecordedModesPanel onModeChanged={refreshSignals} />
+          <div className="sim-switch">
+            <button
+              type="button"
+              className={modesView === 'timeline' ? 'sim-switch-on' : ''}
+              onClick={() => setModesView('timeline')}
+            >
+              Таймлайн
+            </button>
+            <button
+              type="button"
+              className={modesView === 'states' ? 'sim-switch-on' : ''}
+              onClick={() => setModesView('states')}
+            >
+              Статические состояния
+            </button>
+          </div>
+          {modesView === 'timeline' && <TimelinePanel onNotify={showStatus} />}
+          {modesView === 'states' && <StateManager onStateLoaded={handleStateLoaded} />}
+        </>
       )}
 
       {tab === 'emergency' && (

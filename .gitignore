@@ -12,6 +12,9 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
+# Тренды и данные владельца (не в git: GitHub режет файлы >100 МБ)
+data/
+
 # Состояния (генерируются при работе)
 saved_states/
 backend/saved_states/

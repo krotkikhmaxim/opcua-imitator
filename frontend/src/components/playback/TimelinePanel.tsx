@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { playbackApi } from '../../api'
 import { PlaybackStatus } from '../../types'
 import './TimelinePanel.css'
 
 const RATES = [0.25, 0.5, 1, 2, 4, 8]
 const PATH_STORAGE_KEY = 'timeline.xlsx.path'
-const DEFAULT_PATH = '/tmp/user_data.xlsx'
+// Тренд по умолчанию лежит в репозитории стенда; строка пути спрятана
+// в настройках панели.
+const DEFAULT_PATH = '/home/max/opcua-imitator/data/trends/PS_NSH2.xlsx'
 const STATUS_POLL_MS = 1000
 
 /** ISO (включая микросекунды) → epoch ms; наивные метки — локальным временем. */
@@ -43,7 +45,8 @@ function datetimeLocalToMs(value: string): number | null {
  * полная длительность — по мере прогона (ради неё файл целиком не
  * сканируется). Перемотка: полосой, когда длительность известна, или
  * переходом на момент тренда по времени суток (скан с начала файла —
- * семантика seek сервиса).
+ * семантика seek сервиса). Тренд по умолчанию (файл из репозитория
+ * стенда) подгружается сам; путь к другому файлу — в «Настройках».
  */
 export default function TimelinePanel({
   onNotify,
@@ -61,6 +64,10 @@ export default function TimelinePanel({
   const [busy, setBusy] = useState(false)
   const [scrub, setScrub] = useState<number | null>(null)
   const [jumpTo, setJumpTo] = useState('')
+  // Путь к XLSX на сервере — служебная настройка, по умолчанию скрыта.
+  const [showSettings, setShowSettings] = useState(false)
+  // Автозагрузка тренда по умолчанию — один раз за монтаж панели.
+  const autoTried = useRef(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -92,6 +99,14 @@ export default function TimelinePanel({
     },
     [onNotify, refresh],
   )
+
+  // Пока ничего не загружено, сами открываем тренд по умолчанию из
+  // репозитория — панель работает без ввода пути.
+  useEffect(() => {
+    if (!status || status.loaded || autoTried.current) return
+    autoTried.current = true
+    void run(() => playbackApi.loadPath(DEFAULT_PATH), 'Тренд по умолчанию загружен')
+  }, [status, run])
 
   if (!status) return null
 
@@ -164,25 +179,35 @@ export default function TimelinePanel({
             {phase}
           </span>
         )}
-      </div>
-
-      <div className="tl-load">
-        <input
-          className="tl-path"
-          placeholder="Путь к XLSX на сервере"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && loadByPath()}
-        />
         <button
           type="button"
-          className="tl-btn tl-btn-main"
-          disabled={busy || !path.trim()}
-          onClick={loadByPath}
+          className="tl-settings"
+          onClick={() => setShowSettings((v) => !v)}
+          title="Путь к XLSX на сервере"
         >
-          Открыть
+          ⚙ Настройки
         </button>
       </div>
+
+      {showSettings && (
+        <div className="tl-load">
+          <input
+            className="tl-path"
+            placeholder="Путь к XLSX на сервере"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && loadByPath()}
+          />
+          <button
+            type="button"
+            className="tl-btn tl-btn-main"
+            disabled={busy || !path.trim()}
+            onClick={loadByPath}
+          >
+            Открыть
+          </button>
+        </div>
+      )}
 
       {!status.loaded && (
         <p className="tl-hint">
