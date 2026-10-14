@@ -70,11 +70,12 @@ export default function App() {
   const [applying, setApplying] = useState(false)
   const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
   const [heartbeatBusy, setHeartbeatBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('emergency')
+  const [tab, setTab] = useState<Tab>('modes')
   // Режим внутри «Имитации аварий»: лист Э3 или панель мнемо.
   const [simMode, setSimMode] = useState<SimMode>('schematic')
-  // Вид подачи значений внутри «Сценариев и режимов».
-  const [modesView, setModesView] = useState<ModesView>('timeline')
+  // Вид внутри «Сценариев и режимов»; при загрузке страницы встречают
+  // сценарии и режимы.
+  const [modesView, setModesView] = useState<ModesView>('modes')
   // Мост «обозначение Э3 → сигналы»: карта сигнал→аппарат и выбранный аппарат
   // (клик по бейджу схемы подсвечивает его сигналы в мнемо и наоборот).
   const [bridge, setBridge] = useState<SchematicBridge | null>(null)
@@ -351,17 +352,17 @@ export default function App() {
           <div className="sim-switch">
             <button
               type="button"
-              className={modesView === 'timeline' ? 'sim-switch-on' : ''}
-              onClick={() => setModesView('timeline')}
-            >
-              Таймлайн
-            </button>
-            <button
-              type="button"
               className={modesView === 'modes' ? 'sim-switch-on' : ''}
               onClick={() => setModesView('modes')}
             >
               Статические режимы
+            </button>
+            <button
+              type="button"
+              className={modesView === 'timeline' ? 'sim-switch-on' : ''}
+              onClick={() => setModesView('timeline')}
+            >
+              Таймлайн
             </button>
           </div>
           {modesView === 'timeline' && <TimelinePanel onNotify={showStatus} />}
