@@ -307,20 +307,6 @@ export default function App() {
       <div className="app-tabs">
         <button
           type="button"
-          className={`app-tab${tab === 'schematic' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('schematic')}
-        >
-          Схема Э3
-        </button>
-        <button
-          type="button"
-          className={`app-tab${tab === 'mnemo' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('mnemo')}
-        >
-          Мнемосхема
-        </button>
-        <button
-          type="button"
           className={`app-tab${tab === 'modes' ? ' app-tab-on' : ''}`}
           onClick={() => setTab('modes')}
         >
@@ -332,6 +318,20 @@ export default function App() {
           onClick={() => setTab('table')}
         >
           Таблица сигналов
+        </button>
+        <button
+          type="button"
+          className={`app-tab${tab === 'schematic' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('schematic')}
+        >
+          Схема Э3
+        </button>
+        <button
+          type="button"
+          className={`app-tab${tab === 'mnemo' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('mnemo')}
+        >
+          Мнемосхема
         </button>
       </div>
 
