@@ -332,7 +332,11 @@ export default function App() {
         </button>
       </div>
 
-      <StateManager onStateLoaded={handleStateLoaded} />
+      {/* Пульт состояний нужен там, где значениями управляют руками:
+          имитация аварий и таблица сигналов; на сценариях он не нужен. */}
+      {(tab === 'emergency' || tab === 'table') && (
+        <StateManager onStateLoaded={handleStateLoaded} />
+      )}
 
       {tab === 'modes' && (
         <RecordedModesPanel onModeChanged={refreshSignals} />
