@@ -17,7 +17,7 @@ interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
 
-type Tab = 'mnemo' | 'table'
+type Tab = 'mnemo' | 'modes' | 'table'
 
 type DraftValue = string | boolean
 
@@ -306,6 +306,13 @@ export default function App() {
         </button>
         <button
           type="button"
+          className={`app-tab${tab === 'modes' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('modes')}
+        >
+          Сценарии и режимы
+        </button>
+        <button
+          type="button"
           className={`app-tab${tab === 'table' ? ' app-tab-on' : ''}`}
           onClick={() => setTab('table')}
         >
@@ -315,7 +322,9 @@ export default function App() {
 
       <StateManager onStateLoaded={handleStateLoaded} />
 
-      <RecordedModesPanel onModeChanged={refreshSignals} />
+      {tab === 'modes' && (
+        <RecordedModesPanel onModeChanged={refreshSignals} />
+      )}
 
       {tab === 'mnemo' && (
         <div className="mnemo-layout">
