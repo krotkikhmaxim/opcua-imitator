@@ -104,6 +104,15 @@ def test_source_streams_values_coerced_and_skips_nan(tmp_path):
     assert src.t0 == datetime(2026, 3, 23, 15, 0, 0)
 
 
+def test_source_reports_t0_at_open(tmp_path):
+    path = _trend_path(tmp_path, _short_rows())
+    src = open_source(path, CONFIGS, max_bytes=10 * 1024 * 1024)
+    try:
+        assert src.t0 == datetime(2026, 3, 23, 15, 0, 0)
+    finally:
+        src.close()
+
+
 def test_source_rejects_missing_file_and_oversize(tmp_path):
     with pytest.raises(PlaybackSourceError) as missing:
         open_source(str(tmp_path / "nope.xlsx"), CONFIGS, max_bytes=1024)
@@ -166,6 +175,18 @@ async def _wait_phase(svc, phases=("finished", "error"), limit=100000):
             return svc.status()
         await asyncio.sleep(0)
     raise AssertionError(f"плейбэк не дошёл до {phases}")
+
+
+def test_status_exposes_t0_of_loaded_source(tmp_path):
+    async def scenario():
+        path = _trend_path(tmp_path, _short_rows())
+        time, writer = VirtualTime(), FakeWriter()
+        svc = _service(time, writer)
+        loaded = svc.load(path, CONFIGS, max_bytes=1024 * 1024)
+        assert loaded["t0"] == datetime(2026, 3, 23, 15, 0, 0)
+        assert svc.unload()["t0"] is None  # без источника начало неизвестно
+
+    asyncio.run(scenario())
 
 
 def test_play_writes_only_changes_with_recorded_timestamps(tmp_path):

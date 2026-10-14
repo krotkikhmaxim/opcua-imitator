@@ -60,7 +60,7 @@ class XlsxSource:
     unmatched: List[str]
     ambiguous: List[str]
     header_rows: int
-    t0: Optional[datetime] = None  # метка первой строки данных, задаётся при проходе
+    t0: Optional[datetime] = None  # метка первой строки данных; известна уже при открытии
     _workbook: Any = field(repr=False, default=None)
     _sheet: Any = field(repr=False, default=None)
 
@@ -161,8 +161,9 @@ def open_source(
     """Открыть тренд и сопоставить колонки с опубликованными сигналами.
 
     ``configs`` — конфигурация сигналов имитатора (id, тип, node_id/address).
-    Полное чтение не выполняется: заголовки читаются до первой строки данных,
-    дальше строки отдаёт :meth:`XlsxSource.rows`.
+    Полное чтение не выполняется: заголовки читаются до первой строки данных
+    (её метка становится ``t0`` источника), дальше строки отдаёт
+    :meth:`XlsxSource.rows`.
     """
     if not os.path.isfile(path):
         raise PlaybackSourceError("not_found", f"Файл не найден: {path}")
@@ -194,9 +195,12 @@ def open_source(
 
         header_rows = 0
         best_path_row: List[str] = []
+        first_ts: Optional[datetime] = None
         for row in rows:
             texts = [str(c.value) if c.value is not None else "" for c in row]
-            if _parse_ts(texts[0] if texts else None) is not None:
+            moment = _parse_ts(texts[0] if texts else None)
+            if moment is not None:
+                first_ts = moment
                 break  # первая строка данных — шапка кончилась (без неё)
             header_rows += 1
             dotted = sum(
@@ -235,6 +239,7 @@ def open_source(
             unmatched=unmatched,
             ambiguous=sorted(key[1] for key in ambiguous),
             header_rows=header_rows,
+            t0=first_ts,
             _workbook=workbook,
             _sheet=sheet,
         )

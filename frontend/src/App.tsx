@@ -7,6 +7,7 @@ import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream } from './components/mnemo/useSignalStream'
 import ArchivePlaybackPanel from './components/playback/ArchivePlaybackPanel'
 import PlaybackPanel from './components/playback/PlaybackPanel'
+import TimelinePanel from './components/playback/TimelinePanel'
 import SchematicView from './components/schematic/SchematicView'
 import StationEchoPanel from './components/station/StationEchoPanel'
 import { heartbeatApi, schematicApi, signalsApi } from './api'
@@ -17,7 +18,7 @@ interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
 
-type Tab = 'emergency' | 'modes' | 'table'
+type Tab = 'emergency' | 'modes' | 'table' | 'timeline'
 
 type SimMode = 'schematic' | 'mnemo'
 
@@ -330,6 +331,13 @@ export default function App() {
         >
           Имитация аварий
         </button>
+        <button
+          type="button"
+          className={`app-tab${tab === 'timeline' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('timeline')}
+        >
+          Таймлайн
+        </button>
       </div>
 
       {/* Пульт состояний нужен там, где значениями управляют руками:
@@ -337,6 +345,8 @@ export default function App() {
       {(tab === 'emergency' || tab === 'table') && (
         <StateManager onStateLoaded={handleStateLoaded} />
       )}
+
+      {tab === 'timeline' && <TimelinePanel onNotify={showStatus} />}
 
       {tab === 'modes' && (
         <RecordedModesPanel onModeChanged={refreshSignals} />

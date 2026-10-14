@@ -137,6 +137,8 @@ export interface JournalEntry {
 export interface PlaybackStatus {
   loaded: boolean
   source: string | null
+  // Момент первой строки тренда (ISO); известен сразу после загрузки.
+  t0: string | null
   phase: string
   mapped_signals: number
   unmatched_columns: number

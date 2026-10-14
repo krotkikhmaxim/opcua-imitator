@@ -87,6 +87,7 @@ class PlaybackService:
         return {
             "loaded": False,
             "source": None,
+            "t0": None,
             "phase": "idle",
             "mapped_signals": 0,
             "unmatched_columns": 0,
@@ -149,6 +150,7 @@ class PlaybackService:
         self._status.update(
             loaded=True,
             source=source.name,
+            t0=getattr(source, "t0", None),
             mapped_signals=mapped_signals,
             unmatched_columns=unmatched_columns,
             ambiguous=ambiguous,
