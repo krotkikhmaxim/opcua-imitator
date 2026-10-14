@@ -7,7 +7,9 @@ import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream } from './components/mnemo/useSignalStream'
 import ArchivePlaybackPanel from './components/playback/ArchivePlaybackPanel'
 import PlaybackPanel from './components/playback/PlaybackPanel'
+import TimelineBadge from './components/playback/TimelineBadge'
 import TimelinePanel from './components/playback/TimelinePanel'
+import TimelineStrip from './components/playback/TimelineStrip'
 import SchematicView from './components/schematic/SchematicView'
 import StationEchoPanel from './components/station/StationEchoPanel'
 import { heartbeatApi, schematicApi, signalsApi } from './api'
@@ -317,6 +319,10 @@ export default function App() {
         </div>
       </header>
 
+      {/* Полоса таймлайна: живёт под шапкой на всех вкладках — показывает
+          идущий прогон и сообщает об останове при применении сценария. */}
+      <TimelineStrip />
+
       <div className="app-tabs">
         <button
           type="button"
@@ -366,7 +372,12 @@ export default function App() {
             </button>
           </div>
           {modesView === 'timeline' && <TimelinePanel onNotify={showStatus} />}
-          {modesView === 'modes' && <RecordedModesPanel onModeChanged={refreshSignals} />}
+          {modesView === 'modes' && (
+            <>
+              <TimelineBadge onOpen={() => setModesView('timeline')} />
+              <RecordedModesPanel onModeChanged={refreshSignals} />
+            </>
+          )}
         </>
       )}
 
@@ -405,6 +416,12 @@ export default function App() {
           )}
           {simMode === 'mnemo' && (
             <div className="mnemo-tab">
+              <TimelineBadge
+                onOpen={() => {
+                  setTab('modes')
+                  setModesView('timeline')
+                }}
+              />
               <EmergencyButtons onNotify={showStatus} />
               <PlaybackPanel onNotify={showStatus} />
               <ArchivePlaybackPanel onNotify={showStatus} />

@@ -74,8 +74,10 @@ export const playbackApi = {
       })
       .then((r) => r.data)
   },
-  control: (action: string, extra?: { rate?: number; seek_ms?: number }) =>
-    api.post<PlaybackStatus>('/playback/control', { action, ...extra }).then((r) => r.data),
+  control: (
+    action: string,
+    extra?: { rate?: number; seek_ms?: number; start_ms?: number; end_ms?: number },
+  ) => api.post<PlaybackStatus>('/playback/control', { action, ...extra }).then((r) => r.data),
   unload: () => api.post<PlaybackStatus>('/playback/unload').then((r) => r.data),
   loadArchive: (req: LoadArchiveRequest) =>
     api.post<PlaybackStatus>('/playback/load_archive', req).then((r) => r.data),

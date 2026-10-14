@@ -405,3 +405,146 @@
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;
 }
+
+/* -- полоса таймлайна под шапкой ------------------------------------------- */
+
+.tl-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+}
+
+.tl-strip-run {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.tl-strip-idle {
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.tl-strip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tl-strip-run .tl-strip-dot {
+  background: #10b981;
+  animation: tl-strip-pulse 1.6s ease-in-out infinite;
+}
+
+.tl-strip-idle .tl-strip-dot {
+  background: #d1d5db;
+}
+
+@keyframes tl-strip-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.tl-strip-text b {
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-strip-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.tl-strip-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #10b981;
+  border-radius: 999px;
+  background: #10b981;
+  color: #ffffff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tl-strip-btn:hover:not(:disabled) {
+  background: #059669;
+}
+
+.tl-strip-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tl-strip-x {
+  border: none;
+  background: none;
+  color: #92400e;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+/* -- бейдж состояния таймлайна (мнемо, стат-режимы) ------------------------- */
+
+.tl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-bottom: 10px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+  font-family: inherit;
+}
+
+button.tl-badge {
+  cursor: pointer;
+}
+
+button.tl-badge:hover {
+  background: #f3f4f6;
+}
+
+.tl-badge-playing {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.tl-badge-paused {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.tl-badge-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}

@@ -139,6 +139,9 @@ export interface PlaybackStatus {
   source: string | null
   // Момент первой строки тренда (ISO); известен сразу после загрузки.
   t0: string | null
+  // Участок прогона в мс от начала тренда; конец включителен.
+  start_ms: number
+  end_ms: number | null
   phase: string
   mapped_signals: number
   unmatched_columns: number

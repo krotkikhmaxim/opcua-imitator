@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { playbackApi } from '../../api'
 import { PlaybackStatus } from '../../types'
+import {
+  datetimeLocalToMs,
+  formatDuration,
+  formatWall,
+  msToLocalInput,
+  parseIsoMs,
+} from './walltime'
 import './TimelinePanel.css'
 
 const RATES = [0.25, 0.5, 1, 2, 4, 8]
@@ -9,35 +16,6 @@ const PATH_STORAGE_KEY = 'timeline.xlsx.path'
 // в настройках панели.
 const DEFAULT_PATH = '/home/max/opcua-imitator/data/trends/PS_NSH2.xlsx'
 const STATUS_POLL_MS = 1000
-
-/** ISO (включая микросекунды) → epoch ms; наивные метки — локальным временем. */
-function parseIsoMs(iso: string | null | undefined): number | null {
-  if (!iso) return null
-  const trimmed = iso.replace(/\.(\d{3})\d+/, '.$1')
-  const ms = new Date(trimmed).getTime()
-  return Number.isFinite(ms) ? ms : null
-}
-
-function formatWall(ms: number): string {
-  const d = new Date(ms)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return (
-    `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  )
-}
-
-function formatDuration(ms: number): string {
-  const total = Math.floor(ms / 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${Math.floor(total / 3600)}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`
-}
-
-function datetimeLocalToMs(value: string): number | null {
-  if (!value) return null
-  const ms = new Date(value).getTime()
-  return Number.isFinite(ms) ? ms : null
-}
 
 /**
  * Таймлайн тренда: тот же плейбэк, что и панель в мнемо, но с осью
@@ -68,6 +46,9 @@ export default function TimelinePanel({
   const [showSettings, setShowSettings] = useState(false)
   // Автозагрузка тренда по умолчанию — один раз за монтаж панели.
   const autoTried = useRef(false)
+  // Участок прогона: начало и конец моментами тренда.
+  const [startAt, setStartAt] = useState('')
+  const [endAt, setEndAt] = useState('')
 
   const refresh = useCallback(async () => {
     try {
@@ -108,9 +89,15 @@ export default function TimelinePanel({
     void run(() => playbackApi.loadPath(DEFAULT_PATH), 'Тренд по умолчанию загружен')
   }, [status, run])
 
+  const t0Ms = status ? parseIsoMs(status.t0) : null
+
+  // Поля участка заполняются, когда стало известно начало тренда.
+  useEffect(() => {
+    if (t0Ms !== null && !startAt) setStartAt(msToLocalInput(t0Ms))
+  }, [t0Ms, startAt])
+
   if (!status) return null
 
-  const t0Ms = parseIsoMs(status.t0)
   const duration = status.duration_ms
   const position = Math.min(status.position_ms, duration ?? status.position_ms)
   const trendNowMs = t0Ms !== null ? t0Ms + status.position_ms : null
@@ -135,6 +122,29 @@ export default function TimelinePanel({
     const target = scrub
     setScrub(null)
     void run(() => playbackApi.control('seek', { seek_ms: target }))
+  }
+
+  // Пуск участка: поля «начало/конец» — моментами тренда, серверу отдаём
+  // мс от начала файла. Пустое начало — с первой строки, пустой конец —
+  // до конца файла.
+  const playWindow = () => {
+    if (t0Ms === null) {
+      onNotify('err', 'Начало тренда неизвестно — загрузите файл')
+      return
+    }
+    const from = startAt ? datetimeLocalToMs(startAt) : null
+    const to = endAt ? datetimeLocalToMs(endAt) : null
+    const startMs = from !== null ? Math.round(from - t0Ms) : 0
+    const endMs = to !== null ? Math.round(to - t0Ms) : undefined
+    if (startMs < 0) {
+      onNotify('err', 'Начало участка раньше начала тренда')
+      return
+    }
+    if (endMs !== undefined && endMs <= startMs) {
+      onNotify('err', 'Конец участка должен быть позже начала')
+      return
+    }
+    void run(() => playbackApi.control('play', { start_ms: startMs, end_ms: endMs }))
   }
 
   const jump = () => {
@@ -231,6 +241,12 @@ export default function TimelinePanel({
               {status.write_failures > 0 && ` · отказов ${status.write_failures}`}
               {status.max_lag_ms > 0 && ` · лаг ${status.max_lag_ms} мс`}
             </span>
+            {(status.start_ms > 0 || status.end_ms !== null) && (
+              <span className="tl-chip" title="Участок последнего пуска">
+                участок {formatDuration(status.start_ms)}–
+                {status.end_ms !== null ? formatDuration(status.end_ms) : '…'}
+              </span>
+            )}
           </div>
           {status.error && <div className="tl-err">Ошибка прогона: {status.error}</div>}
 
@@ -270,13 +286,51 @@ export default function TimelinePanel({
             </p>
           )}
 
+          {/* Участок прогона: начало и конец моментами тренда. Пустой
+              конец — до конца файла; «Пуск» ниже идёт по этому окну. */}
+          <div className="tl-window">
+            <label>
+              начало
+              <input
+                type="datetime-local"
+                step={1}
+                value={startAt}
+                onChange={(e) => setStartAt(e.target.value)}
+              />
+            </label>
+            <label>
+              конец
+              <input
+                type="datetime-local"
+                step={1}
+                value={endAt}
+                placeholder="до конца"
+                onChange={(e) => setEndAt(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="tl-btn tl-btn-ghost"
+              disabled={busy || t0Ms === null}
+              title="Начало — первая строка, конец — до конца файла"
+              onClick={() => {
+                if (t0Ms !== null) setStartAt(msToLocalInput(t0Ms))
+                setEndAt('')
+              }}
+            >
+              Сбросить
+            </button>
+          </div>
+
           <div className="tl-transport">
             {status.phase !== 'playing' || status.paused ? (
               <button
                 type="button"
                 className="tl-btn tl-btn-main"
                 disabled={busy}
-                onClick={() => run(() => playbackApi.control(status.paused ? 'resume' : 'play'))}
+                onClick={() =>
+                  status.paused ? run(() => playbackApi.control('resume')) : playWindow()
+                }
               >
                 {status.paused ? '▶ Продолжить' : '▶ Пуск'}
               </button>
