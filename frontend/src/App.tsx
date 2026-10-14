@@ -17,7 +17,9 @@ interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
 
-type Tab = 'schematic' | 'mnemo' | 'modes' | 'table'
+type Tab = 'emergency' | 'modes' | 'table'
+
+type SimMode = 'schematic' | 'mnemo'
 
 type DraftValue = string | boolean
 
@@ -62,7 +64,9 @@ export default function App() {
   const [applying, setApplying] = useState(false)
   const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
   const [heartbeatBusy, setHeartbeatBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('schematic')
+  const [tab, setTab] = useState<Tab>('emergency')
+  // Режим внутри «Имитации аварий»: лист Э3 или панель мнемо.
+  const [simMode, setSimMode] = useState<SimMode>('schematic')
   // Мост «обозначение Э3 → сигналы»: карта сигнал→аппарат и выбранный аппарат
   // (клик по бейджу схемы подсвечивает его сигналы в мнемо и наоборот).
   const [bridge, setBridge] = useState<SchematicBridge | null>(null)
@@ -157,11 +161,11 @@ export default function App() {
   }, [bridge])
 
   // Клик по имени сигнала («Аппарат U1 — показать на схеме Э3»): выбрать
-  // аппарат и открыть его лист. Обратный переход не автоматический — бейдж
-  // на схеме просто подсвечивается, вкладку мнемо оператор выбирает сам.
+  // аппарат и показать его лист. Обратный переход не автоматический — бейдж
+  // на схеме просто подсвечивается, режим мнемо оператор выбирает сам.
   const selectFromMnemo = useCallback((device: string | null) => {
     setSelectedDevice(device)
-    if (device !== null) setTab('schematic')
+    if (device !== null) setSimMode('schematic')
   }, [])
 
   // Состояние heartbeat инициализируется из backend, а не хранится локально
@@ -321,17 +325,10 @@ export default function App() {
         </button>
         <button
           type="button"
-          className={`app-tab${tab === 'schematic' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('schematic')}
+          className={`app-tab${tab === 'emergency' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('emergency')}
         >
-          Схема Э3
-        </button>
-        <button
-          type="button"
-          className={`app-tab${tab === 'mnemo' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('mnemo')}
-        >
-          Мнемосхема
+          Имитация аварий
         </button>
       </div>
 
@@ -341,37 +338,60 @@ export default function App() {
         <RecordedModesPanel onModeChanged={refreshSignals} />
       )}
 
-      {tab === 'schematic' && (
+      {tab === 'emergency' && (
         <>
-          {bridgeError && <div className="signals-status signals-status-err">{bridgeError}</div>}
-          {bridge && (
-            <SchematicView
-              signals={signals}
-              bridge={bridge}
-              selectedDevice={selectedDevice}
-              onSelectDevice={setSelectedDevice}
-            />
+          <div className="sim-switch">
+            <button
+              type="button"
+              className={simMode === 'schematic' ? 'sim-switch-on' : ''}
+              onClick={() => setSimMode('schematic')}
+            >
+              По схеме Э3
+            </button>
+            <button
+              type="button"
+              className={simMode === 'mnemo' ? 'sim-switch-on' : ''}
+              onClick={() => setSimMode('mnemo')}
+            >
+              По мнемосхеме
+            </button>
+          </div>
+          {simMode === 'schematic' && (
+            <>
+              {bridgeError && (
+                <div className="signals-status signals-status-err">{bridgeError}</div>
+              )}
+              {bridge && (
+                <SchematicView
+                  signals={signals}
+                  bridge={bridge}
+                  selectedDevice={selectedDevice}
+                  onSelectDevice={setSelectedDevice}
+                />
+              )}
+            </>
+          )}
+          {simMode === 'mnemo' && (
+            <div className="mnemo-tab">
+              <EmergencyButtons onNotify={showStatus} />
+              <PlaybackPanel onNotify={showStatus} />
+              <ArchivePlaybackPanel onNotify={showStatus} />
+              {status && (
+                <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>
+              )}
+              <MnemoPanel
+                signals={signals}
+                driverActive={driverActive}
+                showStatus={showStatus}
+                deviceBySignal={deviceBySignal}
+                selectedDevice={selectedDevice}
+                onSelectDevice={selectFromMnemo}
+              />
+              <TruthJournalPanel />
+              <StationEchoPanel />
+            </div>
           )}
         </>
-      )}
-
-      {tab === 'mnemo' && (
-        <div className="mnemo-tab">
-          <EmergencyButtons onNotify={showStatus} />
-          <PlaybackPanel onNotify={showStatus} />
-          <ArchivePlaybackPanel onNotify={showStatus} />
-          {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
-          <MnemoPanel
-            signals={signals}
-            driverActive={driverActive}
-            showStatus={showStatus}
-            deviceBySignal={deviceBySignal}
-            selectedDevice={selectedDevice}
-            onSelectDevice={selectFromMnemo}
-          />
-          <TruthJournalPanel />
-          <StationEchoPanel />
-        </div>
       )}
 
       {tab === 'table' && (

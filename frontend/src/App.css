@@ -116,8 +116,37 @@
   margin-top: 24px;
 }
 
-/* Мнемо-вкладка: панели колонкой на всю ширину страницы (схема Э3 —
-   отдельная вкладка). */
+/* Переключатель режима внутри «Имитации аварий»: лист Э3 или мнемо. */
+.sim-switch {
+  display: flex;
+  gap: 6px;
+  margin-top: 24px;
+}
+
+.sim-switch button {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.sim-switch button:hover {
+  color: #1f2937;
+  border-color: #9ca3af;
+}
+
+.sim-switch button.sim-switch-on {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #ffffff;
+}
+
+/* Режим мнемо внутри «Имитации аварий»: панели колонкой на всю ширину
+   страницы; лист Э3 — соседний режим переключателя. */
 .mnemo-tab {
   margin-top: 24px;
   min-width: 0;
