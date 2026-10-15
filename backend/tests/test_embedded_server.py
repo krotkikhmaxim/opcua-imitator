@@ -42,10 +42,12 @@ def test_embedded_server_browse_and_write():
                 assert await server.write_value("Application.GVL.Speed", 42.0)
                 assert await speed_node.read_value() == 42.0
 
-                # запись внешним клиентом видна встроенному серверу
+                # legacy-поле writable — флаг имитатора (может ли он сам
+                # симулировать сигнал), внешнюю запись он не открывает:
+                # все узлы read-only для внешних клиентов (Режим B, ТЗ #5 §10)
                 ext_speed = client.get_node(speed_node.nodeid)
-                await ext_speed.write_value(7.0)
-                assert await server.read_value("Application.GVL.Speed") == 7.0
+                with pytest.raises(ua.UaStatusCodeError):
+                    await ext_speed.write_value(7.0)
 
                 # тип int сохраняется числом
                 assert await server.write_value("ProfibusData.MotorSpeed", 1200)

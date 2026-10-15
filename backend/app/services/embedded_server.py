@@ -91,11 +91,13 @@ class EmbeddedOpcUaServer:
                 cfg.get("default"),
                 vtype,
             )
-            # External clients see the inputs as read-only (opcua_writable, per
-            # the source file); the imitator's own simulation writes bypass this
-            # flag by writing through the internal node handle. Legacy configs
-            # without opcua_writable keep using their writable flag.
-            await node.set_writable(bool(cfg.get("opcua_writable", cfg.get("writable", False))))
+            # Внешние OPC UA-клиенты видят все узлы read-only (Режим B, ТЗ #5
+            # §10): управление значениями — только серверные команды
+            # приложения. Флаг берётся только из opcua_writable; legacy-поле
+            # writable — флаг имитатора (может ли он сам симулировать сигнал),
+            # внешнюю запись оно не открывает. Внутренние записи идут через
+            # хэндл узла и этот флаг не проходят.
+            await node.set_writable(bool(cfg.get("opcua_writable", False)))
             self._nodes[signal_id] = node
             self._types[signal_id] = vtype
 
