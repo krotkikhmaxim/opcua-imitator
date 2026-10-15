@@ -141,7 +141,7 @@ class TestPartialApply:
     def test_write_failure_gives_partial_without_rollback(self, bus, monkeypatch):
         # §7: начавший применяться пакет отчитывается по каждому сигналу;
         # автоматический откат не выполняется.
-        async def broken_write(signal_id, value, source=None):
+        async def broken_write(signal_id, value, source=None, owner=None):
             return False
 
         monkeypatch.setattr(bus, "write_value", broken_write)
@@ -155,7 +155,7 @@ class TestPartialApply:
     def test_second_signal_failure_gives_partial(self, bus, monkeypatch):
         calls = {"n": 0}
 
-        async def flaky_write(signal_id, value, source=None):
+        async def flaky_write(signal_id, value, source=None, owner=None):
             calls["n"] += 1
             return calls["n"] == 1  # первая запись удачна, вторая нет
 
@@ -173,9 +173,9 @@ class TestOrdering:
         seen: list[str] = []
         original = bus.write_value
 
-        async def spy(signal_id, value, source=None):
+        async def spy(signal_id, value, source=None, owner=None):
             seen.append(signal_id)
-            return await original(signal_id, value, source=source)
+            return await original(signal_id, value, source=source, owner=owner)
 
         bus.write_value = spy  # type: ignore[assignment]
         run(bus.apply_changes({BOOL_SIG: True, INT_SIG: 5}, source="manual"))

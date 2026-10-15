@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import uuid
 from collections import OrderedDict
@@ -7,7 +8,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from app.services import signal_types
+from app.services.ownership import Owner, OwnershipRegistry
 from app.services.signal_cache import SignalCache
+
+logger = logging.getLogger("opcua-imitator.bus")
 
 #: Окно дедупликации по op_id (ТЗ #5 §6): последние N применённых команд.
 #: Повтор команды с тем же op_id в пределах окна возвращает сохранённый
@@ -55,6 +59,12 @@ class OPCSignalBus:
         # Одновременные apply_changes выполняются по одному: порядок обработки
         # определён (§6), гонки ревизий внутри пакета нет.
         self._apply_lock = asyncio.Lock()
+        # Владение сигналами (ТЗ #5 §9.2): запись в занятый сигнал — только
+        # самому владельцу. Устанавливается при старте приложения.
+        self._ownership: Optional[OwnershipRegistry] = None
+
+    def set_ownership(self, registry: Optional[OwnershipRegistry]) -> None:
+        self._ownership = registry
 
     @property
     def embedded(self) -> Optional[Any]:
@@ -99,9 +109,28 @@ class OPCSignalBus:
         except Exception:
             return None
 
+    def _ownership_violation(self, signal_id: str, owner: Optional[str]) -> Optional[str]:
+        """Текст отказа, если сигнал занят другим источником (§9.2).
+
+        Писавший без подписи (``owner=None``: ручная, пакетная, восстановление
+        состояния) в занятый сигнал не проходит — занятый сигнал меняет только
+        его владелец, подписанный «scenario:<run_id>».
+        """
+        if self._ownership is None:
+            return None
+        held = self._ownership.owner_of(signal_id)
+        if held is not None and held.id != owner:
+            return f"Сигнал {signal_id} под владением «{held.title}» ({held.id})"
+        return None
+
     async def write_value(self, signal_id: str, value: Any,
-                          source: Optional[str] = None) -> bool:
+                          source: Optional[str] = None,
+                          owner: Optional[str] = None) -> bool:
         """Одиночная запись; ``source`` — имя источника для карточки состояния."""
+        violation = self._ownership_violation(signal_id, owner)
+        if violation:
+            logger.warning("запись отклонена владением: %s", violation)
+            return False
         if self.mode == OPCMode.SERVER and self._embedded is not None:
             ok = await self._embedded.write_value(signal_id, value)
             if ok:
@@ -130,8 +159,13 @@ class OPCSignalBus:
         return self.mode in (OPCMode.SERVER, OPCMode.IMITATOR)
 
     async def write_value_at(self, signal_id: str, value: Any, when: datetime,
-                             source: Optional[str] = None) -> bool:
+                             source: Optional[str] = None,
+                             owner: Optional[str] = None) -> bool:
         """Запись с заданной SourceTimestamp; только для симулированных режимов."""
+        violation = self._ownership_violation(signal_id, owner)
+        if violation:
+            logger.warning("запись отклонена владением: %s", violation)
+            return False
         if self.mode == OPCMode.SERVER and self._embedded is not None:
             ok = await self._embedded.write_value_at(signal_id, value, when)
             if ok:
@@ -152,6 +186,7 @@ class OPCSignalBus:
         require_writable: bool = False,
         contract: str = "api",
         when: Optional[datetime] = None,
+        owner: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Единый механизм применения изменений состояния (ТЗ #5 §6, §7).
 
@@ -166,14 +201,16 @@ class OPCSignalBus:
         Повтор с тем же ``op_id`` и тем же телом в пределах окна
         ``APPLY_DEDUP_WINDOW`` возвращает сохранённый результат с флагом
         ``replayed`` и не выполняется повторно; тот же ``op_id`` с другим
-        телом — конфликт (``status="conflict"``).
+        телом — конфликт (``status="conflict"``). ``owner`` — личность
+        пишущего (ТЗ §9.2): сигнал под владением другого — отказ с кодом
+        ``owned``; сам владелец пишет свободно.
 
         Возвращает ответ команды: ``op_id``, ``status``
         (``applied`` | ``partial`` | ``rejected`` | ``failed`` | ``conflict``),
         ``results[signal_id] = {status, value?, revision?, error?, code?}``,
         ``applied``, ``errors``.
         """
-        body = _fingerprint(changes, expected_revisions, require_writable, contract)
+        body = _fingerprint(changes, expected_revisions, require_writable, contract, owner)
         async with self._apply_lock:
             if op_id is not None:
                 cached = self._apply_history.get(op_id)
@@ -230,6 +267,15 @@ class OPCSignalBus:
                     }
                     rejected = True
                     continue
+                violation = self._ownership_violation(signal_id, owner)
+                if violation:
+                    errors.append(violation)
+                    results[signal_id] = {
+                        "status": "rejected", "code": "owned",
+                        "error": violation,
+                    }
+                    rejected = True
+                    continue
                 wanted = expected.get(signal_id)
                 if wanted is not None and self.cache.get_revision(signal_id) != wanted:
                     error = (
@@ -262,13 +308,16 @@ class OPCSignalBus:
                 _remember(self._apply_history, op_id, body, response)
                 return response
 
-            # Фаза 2 — применение по одному в порядке передачи.
+            # Фаза 2 — применение по одному в порядке передачи; подпись
+            # владельца проходит до самой записи (§9.2: владелец пишет свободно).
             applied: List[str] = []
             for signal_id, value in prepared:
                 if when is not None:
-                    ok = await self.write_value_at(signal_id, value, when, source=source)
+                    ok = await self.write_value_at(
+                        signal_id, value, when, source=source, owner=owner
+                    )
                 else:
-                    ok = await self.write_value(signal_id, value, source=source)
+                    ok = await self.write_value(signal_id, value, source=source, owner=owner)
                 if ok:
                     revision = self.cache.get_revision(signal_id)
                     results[signal_id] = {
@@ -314,6 +363,7 @@ def _fingerprint(
     expected_revisions: Optional[Mapping[str, int]],
     require_writable: bool,
     contract: str,
+    owner: Optional[str] = None,
 ) -> str:
     """Отпечаток тела команды для дедупликации: тот же op_id + другое тело = конфликт."""
     return json.dumps(
@@ -322,6 +372,7 @@ def _fingerprint(
             "expected": sorted((expected_revisions or {}).items()),
             "require_writable": require_writable,
             "contract": contract,
+            "owner": owner,
         },
         ensure_ascii=False,
         sort_keys=True,

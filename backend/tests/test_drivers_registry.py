@@ -220,15 +220,24 @@ def client():
         yield test_client
 
 
-def test_manual_write_conflicts_with_running_scenario(client):
+def test_manual_write_conflicts_with_owned_signal(client):
+    """ТЗ #5 §9.2: занятый сценарием сигнал — 409 с именем владельца;
+    грубой блокировки «идёт сценарий» больше нет."""
+    from app.main import _ownership
+    from app.services.ownership import Owner
+
     config = load_signal_config()
     signal_id = next(cfg["id"] for cfg in config)
-    set_scenario_engine(FakeEngine(running=True))
-    response = client.post(
-        "/api/signals/write", json={"id": signal_id, "value": False}
-    )
-    assert response.status_code == 409
-    assert "scenario" in response.json()["detail"]
+    owner = Owner(id="scenario:own01", kind="scenario", title="Режим «Тест» (run own01)")
+    assert _ownership.acquire(owner, [signal_id]) == []
+    try:
+        response = client.post(
+            "/api/signals/write", json={"id": signal_id, "value": False}
+        )
+        assert response.status_code == 409
+        assert "Режим «Тест»" in response.json()["detail"]
+    finally:
+        _ownership.release("scenario:own01")
 
 
 def test_scenario_start_conflicts_with_running_playback(client):
@@ -242,13 +251,18 @@ def test_scenario_start_conflicts_with_running_playback(client):
     assert "playback" in response.json()["detail"]
 
 
-def test_manual_write_after_stop_is_allowed_again(client):
+def test_manual_write_after_release_is_allowed_again(client):
+    """Освободил владение (прогон завершён/остановлен) — сигнал снова пишется."""
+    from app.main import _ownership
+    from app.services.ownership import Owner
+
     config = load_signal_config()
     signal_id = next(cfg["id"] for cfg in config)
-    set_scenario_engine(FakeEngine(running=True))
+    owner = Owner(id="scenario:own02", kind="scenario", title="Режим «Тест» (run own02)")
+    _ownership.acquire(owner, [signal_id])
     blocked = client.post("/api/signals/write", json={"id": signal_id, "value": False})
     assert blocked.status_code == 409
-    set_scenario_engine(FakeEngine(running=False))
+    _ownership.release("scenario:own02")
     allowed = client.post("/api/signals/write", json={"id": signal_id, "value": False})
     assert allowed.status_code == 200
 

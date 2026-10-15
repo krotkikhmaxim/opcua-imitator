@@ -14,7 +14,7 @@ HTTP 409 — забота маршрутов, поэтому сервис ост
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List
+from typing import AbstractSet, Callable, Dict, List, Optional
 
 
 class DriverConflict(Exception):
@@ -44,9 +44,18 @@ class ValueDriverRegistry:
     def any_active(self) -> bool:
         return any(check() for check in self._drivers.values())
 
-    def ensure_manual_writes_allowed(self) -> None:
-        """Ручная запись допустима только при пустом реестре."""
+    def ensure_manual_writes_allowed(self, exclude: Optional[AbstractSet[str]] = None) -> None:
+        """Ручная запись допустима при пустом реестре (кроме исключённых).
+
+        Исключённый драйвер (сценарий, ТЗ #5 §9.2) отвечает за конфликты
+        по-сигнально — владением в механизме применения; грубый запрет
+        остаётся для драйверов, чьё поле записи не выражается набором
+        сигналов (плейбэк).
+        """
+        skipped = exclude or frozenset()
         for driver_id, check in self._drivers.items():
+            if driver_id in skipped:
+                continue
             if check():
                 raise DriverConflict(
                     "driver_active",
