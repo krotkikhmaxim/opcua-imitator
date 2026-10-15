@@ -548,3 +548,22 @@ button.tl-badge:hover {
   border-color: #fecaca;
   color: #991b1b;
 }
+
+/* Статус сигнала: источник последнего изменения и владелец (ТЗ #5 §12). */
+.signals-statuscell {
+  max-width: 220px;
+}
+
+.signals-owner {
+  color: #b45309;
+  font-size: 12px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Полоса потери связи: значения устарели, управление заблокировано. */
+.app-offline {
+  margin: 0 20px 8px;
+}

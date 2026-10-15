@@ -1,13 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
 
+/** Дельта одного сигнала (ТЗ #5 §12): значение, ревизия, источник. */
+export interface SignalEntry {
+  v: unknown
+  r: number
+  s?: string | null
+}
+
+/** Новый владелец сигнала (или null при освобождении). */
+export type OwnerEntry = { id: string; title: string } | null
+
 export interface SignalStream {
   connected: boolean
   activeDrivers: string[]
 }
 
+interface SignalsSnapshotMessage {
+  type: 'signals_snapshot'
+  seq: number
+  signals: Record<string, Record<string, unknown>>
+}
+
 interface SignalsUpdateMessage {
   type: 'signals_update'
-  changes: Record<string, unknown>
+  seq: number
+  changes: Record<string, SignalEntry>
+  owners?: Record<string, OwnerEntry>
 }
 
 interface DriverChangedMessage {
@@ -15,29 +33,37 @@ interface DriverChangedMessage {
   active: string[]
 }
 
-type FeedMessage = SignalsUpdateMessage | DriverChangedMessage
+type FeedMessage = SignalsSnapshotMessage | SignalsUpdateMessage | DriverChangedMessage
+
+interface UseSignalStreamOptions {
+  /** Применить дельту значений (с ревизиями) и, при передаче, карту владельцев. */
+  onSignals: (changes: Record<string, SignalEntry>, owners?: Record<string, OwnerEntry>) => void
+  /** Заменить состояние полным снимком (при подключении). */
+  onSnapshot: (signals: Record<string, Record<string, unknown>>) => void
+  /** Обнаружен пропуск seq — часть дельт потеряна, нужен свежий снимок. */
+  onGap: () => void
+}
 
 /**
- * Подписка на дельты значений и смен драйвера (WS /ws).
+ * Подписка на снимок, дельты с ревизиями и смены драйвера (WS /ws).
  *
- * Переподключение с нарастающей задержкой до 10 с; пока связи нет, мнемо
- * живёт на опросе REST, который ведёт App — фолбэк не требует отдельной
- * логики. Активные драйверы сбрасываются при обрыве: без подтверждения
- * сервера нельзя считать, что сценарий ещё идёт.
+ * §12: при подключении сервер сначала присылает снимок, затем дельты с
+ * монотонным seq. Пропуск seq (потерянные сообщения) — повторный запрос
+ * снимка через onGap. Переподключение с нарастающей задержкой до 10 с;
+ * пока связи нет, App блокирует управление и помечает значения устаревшими.
  */
-export function useSignalStream(
-  onSignals: (changes: Record<string, unknown>) => void,
-): SignalStream {
+export function useSignalStream(options: UseSignalStreamOptions): SignalStream {
   const [connected, setConnected] = useState(false)
   const [activeDrivers, setActiveDrivers] = useState<string[]>([])
-  const onSignalsRef = useRef(onSignals)
-  onSignalsRef.current = onSignals
+  const handlers = useRef(options)
+  handlers.current = options
 
   useEffect(() => {
     let ws: WebSocket | null = null
     let disposed = false
     let attempt = 0
     let timer: number | undefined
+    let lastSeq: number | null = null
 
     const connect = () => {
       if (disposed) return
@@ -46,6 +72,8 @@ export function useSignalStream(
       ws.onopen = () => {
         setConnected(true)
         attempt = 0
+        // До первого сообщения нового соединения ничего не знаем о seq.
+        lastSeq = null
       }
       ws.onmessage = (event: MessageEvent) => {
         let message: FeedMessage
@@ -54,8 +82,15 @@ export function useSignalStream(
         } catch {
           return
         }
-        if (message.type === 'signals_update') {
-          onSignalsRef.current(message.changes)
+        if (message.type === 'signals_snapshot') {
+          lastSeq = message.seq
+          handlers.current.onSnapshot(message.signals)
+        } else if (message.type === 'signals_update') {
+          if (lastSeq !== null && message.seq > lastSeq + 1) {
+            handlers.current.onGap()
+          }
+          lastSeq = message.seq
+          handlers.current.onSignals(message.changes, message.owners)
         } else if (message.type === 'driver_changed') {
           setActiveDrivers(message.active)
         }

@@ -4,7 +4,7 @@ import StateManager from './components/StateManager'
 import EmergencyButtons from './components/mnemo/EmergencyButtons'
 import MnemoPanel from './components/mnemo/MnemoPanel'
 import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
-import { useSignalStream } from './components/mnemo/useSignalStream'
+import { useSignalStream, type OwnerEntry, type SignalEntry } from './components/mnemo/useSignalStream'
 import ArchivePlaybackPanel from './components/playback/ArchivePlaybackPanel'
 import PlaybackPanel from './components/playback/PlaybackPanel'
 import TimelineBadge from './components/playback/TimelineBadge'
@@ -46,6 +46,33 @@ function signalAddress(s: Signal): string {
   return s.address || s.project_tag || s.id
 }
 
+/** Сырая карточка сервера → Signal; общий для REST-опроса и WS-снимка. */
+function toSignal(id: string, s: Record<string, unknown>): Signal {
+  return {
+    id,
+    short_id: s.short_id as string | undefined,
+    name: s.name as string,
+    type: s.type as string,
+    writable: Boolean(s.writable),
+    value: s.value as Signal['value'],
+    revision: s.revision as number | undefined,
+    source: (s.source as string | null) ?? null,
+    changed_at: (s.changed_at as string | null) ?? null,
+    owner: (s.owner as string | null) ?? null,
+    owner_id: (s.owner_id as string | null) ?? null,
+    direction: s.direction as string | undefined,
+    channel: s.channel as string | undefined,
+    module: s.module as string | undefined,
+    cabinet: s.cabinet as string | undefined,
+    device: s.device as string | undefined,
+    address: s.address as string | undefined,
+    project_tag: s.project_tag as string | undefined,
+    bit: s.bit as string | number | undefined,
+    word_address: s.word_address as string | number | undefined,
+    logic: s.logic as string | undefined,
+  }
+}
+
 function sortSignals(list: Signal[]): Signal[] {
   return list.slice().sort((a, b) => {
     const cab = (a.cabinet || '').localeCompare(b.cabinet || '')
@@ -85,49 +112,57 @@ export default function App() {
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null)
   const statusTimer = useRef<number | null>(null)
 
-  const applyDeltas = useCallback((changes: Record<string, unknown>) => {
-    setSignals((prev) =>
-      prev.map((s) =>
-        Object.prototype.hasOwnProperty.call(changes, s.id)
-          ? { ...s, value: changes[s.id] as Signal['value'] }
-          : s,
-      ),
-    )
-  }, [])
-
-  const { connected: streamConnected, activeDrivers } = useSignalStream(applyDeltas)
-  const driverActive = activeDrivers.length > 0
-
   const refreshSignals = useCallback(async () => {
     try {
       const res = await fetch('/api/signals').then((r): Promise<SignalsResponse> => r.json())
-      const list: Signal[] = Object.entries(res.signals).map(([id, s]) => ({
-        id,
-        short_id: s.short_id,
-        name: s.name,
-        type: s.type,
-        writable: s.writable,
-        value: s.value,
-        revision: s.revision,
-        owner: s.owner,
-        owner_id: s.owner_id,
-        direction: s.direction,
-        channel: s.channel,
-        module: s.module,
-        cabinet: s.cabinet,
-        device: s.device,
-        address: s.address,
-        project_tag: s.project_tag,
-        bit: s.bit,
-        word_address: s.word_address,
-        logic: s.logic,
-      }))
-      setSignals(list)
+      setSignals(Object.entries(res.signals).map(([id, s]) => toSignal(id, s)))
       setUpdatedAt(new Date().toLocaleTimeString())
     } catch {
       // ignore
     }
   }, [])
+
+  // §12: дельта применяется, только если она не старше известной ревизии —
+  // устаревшее событие не откатывает подтверждённое состояние.
+  const applyDeltas = useCallback(
+    (changes: Record<string, SignalEntry>, owners?: Record<string, OwnerEntry>) => {
+      setSignals((prev) =>
+        prev.map((s) => {
+          let next = s
+          const ownerEntry = owners ? owners[s.id] : undefined
+          if (ownerEntry !== undefined) {
+            next = {
+              ...next,
+              owner: ownerEntry ? ownerEntry.title : null,
+              owner_id: ownerEntry ? ownerEntry.id : null,
+            }
+          }
+          const entry = changes[s.id]
+          if (!entry) return next
+          const rev = typeof entry.r === 'number' ? entry.r : 0
+          if (typeof next.revision === 'number' && rev < next.revision) return next
+          return {
+            ...next,
+            value: entry.v as Signal['value'],
+            revision: rev,
+            source: entry.s !== undefined ? entry.s : next.source,
+          }
+        }),
+      )
+    },
+    [],
+  )
+
+  const { connected: streamConnected, activeDrivers } = useSignalStream({
+    onSignals: applyDeltas,
+    onSnapshot: useCallback((raw: Record<string, Record<string, unknown>>) => {
+      setSignals(Object.entries(raw).map(([id, s]) => toSignal(id, s)))
+    }, []),
+    onGap: useCallback(() => {
+      void refreshSignals()
+    }, [refreshSignals]),
+  })
+  const driverActive = activeDrivers.length > 0
 
   useEffect(() => {
     refreshSignals()
@@ -227,11 +262,13 @@ export default function App() {
   // §8: в представления попадает только подтверждённый сервером результат
   // команды; оптимистичной подмены значения нет.
   const applyConfirmed = useCallback(
-    (res: WriteBatchResponse) => {
+    (res: WriteBatchResponse, source: string) => {
       if (!res.results) return
-      const confirmed: Record<string, unknown> = {}
+      const confirmed: Record<string, SignalEntry> = {}
       for (const [id, entry] of Object.entries(res.results)) {
-        if (entry.status === 'applied') confirmed[id] = entry.value
+        if (entry.status === 'applied') {
+          confirmed[id] = { v: entry.value, r: entry.revision ?? 0, s: source }
+        }
       }
       if (Object.keys(confirmed).length > 0) applyDeltas(confirmed)
     },
@@ -262,7 +299,7 @@ export default function App() {
         expected_revisions:
           Object.keys(expected_revisions).length > 0 ? expected_revisions : undefined,
       })
-      applyConfirmed(res)
+      applyConfirmed(res, 'manual_batch')
       if (res.errors.length > 0) {
         showStatus('err', `Применено ${res.applied.length} из ${ids.length}. Ошибки: ${res.errors.join('; ')}`)
       } else {
@@ -288,7 +325,7 @@ export default function App() {
     setApplying(true)
     try {
       const res = await signalsApi.reset(ids)
-      applyConfirmed(res)
+      applyConfirmed(res, 'reset')
       if (res.errors.length > 0) {
         showStatus('err', `Сброшено ${res.applied.length} из ${ids.length}. Ошибки: ${res.errors.join('; ')}`)
       } else {
@@ -314,7 +351,7 @@ export default function App() {
     setApplying(true)
     try {
       const res = await signalsApi.reset()
-      applyConfirmed(res)
+      applyConfirmed(res, 'reset')
       if (res.errors.length > 0) {
         showStatus('err', `Сброшено ${res.applied.length}. Ошибки: ${res.errors.join('; ')}`)
       } else {
@@ -398,6 +435,14 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* §12: связь потеряна — значения помечаются устаревшими, управление
+          блокируется до восстановления (кнопки ниже и мнемо отключены). */}
+      {!streamConnected && (
+        <div className="signals-status signals-status-err app-offline">
+          Связь с сервером потеряна — значения устарели, управление заблокировано
+        </div>
+      )}
 
       {/* Полоса таймлайна: живёт под шапкой на всех вкладках — показывает
           идущий прогон и сообщает об останове при применении сценария. */}
@@ -516,6 +561,7 @@ export default function App() {
                 selectedDevice={selectedDevice}
                 onSelectDevice={selectFromMnemo}
                 onWritten={refreshSignals}
+                offline={!streamConnected}
               />
               <TruthJournalPanel />
               <StationEchoPanel />
@@ -544,20 +590,21 @@ export default function App() {
           </span>
           <button
             className="signals-apply"
-            disabled={applying || changedCount === 0}
+            disabled={applying || !streamConnected || changedCount === 0}
+            title={streamConnected ? undefined : 'Связь с сервером потеряна'}
             onClick={applyChanges}
           >
             {applying ? 'Применение…' : `Применить${changedCount > 0 ? ` (${changedCount})` : ''}`}
           </button>
           {changedCount > 0 && (
-            <button className="signals-cancel" disabled={applying} onClick={() => resetDrafts(Object.keys(drafts))}>
+            <button className="signals-cancel" disabled={applying || !streamConnected} onClick={() => resetDrafts(Object.keys(drafts))}>
               Сбросить
             </button>
           )}
           {changedCount > 0 && (
             <button
               className="signals-cancel"
-              disabled={applying}
+              disabled={applying || !streamConnected}
               title="Сбросить выбранные сигналы к начальным значениям реестра"
               onClick={resetSelected}
             >
@@ -566,7 +613,7 @@ export default function App() {
           )}
           <button
             className="signals-cancel"
-            disabled={applying}
+            disabled={applying || !streamConnected}
             title="Сбросить весь записываемый набор к начальным значениям реестра"
             onClick={resetAll}
           >
@@ -590,6 +637,7 @@ export default function App() {
                     <th>Сигнал</th>
                     <th>Тип</th>
                     <th>Значение</th>
+                    <th>Статус</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -617,11 +665,22 @@ export default function App() {
                           onChange={setDraft}
                         />
                       </td>
+                      <td className="signals-statuscell">
+                        {/* §12: источник последнего изменения и владелец. */}
+                        <div className="signals-tag mono" title={s.source ? `Источник: ${s.source}` : 'Источник: —'}>
+                          {s.source || '—'}
+                        </div>
+                        {s.owner && (
+                          <div className="signals-owner" title={`Держит: ${s.owner_id}`}>
+                            🔒 {s.owner}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {list.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="signals-empty">Нет сигналов</td>
+                      <td colSpan={8} className="signals-empty">Нет сигналов</td>
                     </tr>
                   )}
                 </tbody>

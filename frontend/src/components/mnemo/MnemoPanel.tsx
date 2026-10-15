@@ -24,6 +24,8 @@ interface Props {
   onSelectDevice?: (dt: string | null) => void
   /** Вызывается после записи (успех или отказ): обновить подтверждённые состояния. */
   onWritten?: () => void
+  /** Связь с сервером потеряна (§12): запись заблокирована. */
+  offline?: boolean
 }
 
 function isBool(signal: Signal): boolean {
@@ -45,6 +47,7 @@ export default function MnemoPanel({
   selectedDevice,
   onSelectDevice,
   onWritten,
+  offline = false,
 }: Props) {
   const [direction, setDirection] = useState<DirectionFilter>('all')
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
@@ -73,7 +76,7 @@ export default function MnemoPanel({
   }, [filtered])
 
   const toggle = async (s: Signal) => {
-    if (driverActive || busyIds.has(s.id) || !isBool(s)) return
+    if (offline || driverActive || busyIds.has(s.id) || !isBool(s)) return
     const next = !Boolean(s.value)
     setBusyIds((prev) => new Set(prev).add(s.id))
     try {
@@ -177,11 +180,17 @@ export default function MnemoPanel({
                     key={s.id}
                     type="button"
                     className={`mnemo-badge mnemo-badge-bool ${on ? 'mnemo-on' : 'mnemo-off'}${
-                      toggleable && !driverActive ? ' mnemo-toggleable' : ''
+                      toggleable && !driverActive && !offline ? ' mnemo-toggleable' : ''
                     }`}
-                    disabled={!toggleable || driverActive || busyIds.has(s.id)}
+                    disabled={!toggleable || driverActive || offline || busyIds.has(s.id)}
                     onClick={() => toggle(s)}
-                    title={toggleable && !driverActive ? 'Нажмите, чтобы переключить' : s.logic || s.name}
+                    title={
+                      offline
+                        ? 'Связь с сервером потеряна — управление заблокировано'
+                        : toggleable && !driverActive
+                          ? 'Нажмите, чтобы переключить'
+                          : s.logic || s.name
+                    }
                   >
                     <span {...nameProps}>{s.name}</span>
                     <span className="mnemo-badge-value">{on ? 'ВКЛ' : 'ОТКЛ'}</span>

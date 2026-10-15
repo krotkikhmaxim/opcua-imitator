@@ -38,6 +38,9 @@ export interface Signal {
   value: boolean | number | string | null
   /** Ревизия подтверждённого состояния (ТЗ #5 §6.3); растёт с каждой записью. */
   revision?: number
+  /** Источник последнего изменения (manual, reset, scenario:<run_id>, …). */
+  source?: string | null
+  changed_at?: string | null
   /** Кто держит сигнал сейчас (ТЗ #5 §9.2), если держит. */
   owner?: string | null
   owner_id?: string | null
