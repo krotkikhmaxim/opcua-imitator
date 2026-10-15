@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
@@ -11,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.api.archive_routes import router as archive_router
+from app.api.diagnostics_routes import router as diagnostics_router, set_diagnostics_journal
 from app.api.playback_routes import router as playback_router, set_playback_service
 from app.api.routes import router, set_services, set_snapshot_hook
 from app.api.scenario_routes import (
@@ -30,6 +32,7 @@ from app.api.verification_routes import (
 )
 from app.config import load_signal_config, settings
 from app.services import signal_types
+from app.services.diagnostics import DiagnosticsJournal
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
@@ -75,6 +78,10 @@ _gate = HeartbeatGate(_registry, lambda: _heartbeat)
 # держит его исключительно; шина проверяет владение при каждой записи.
 _ownership = OwnershipRegistry()
 _bus.set_ownership(_ownership)
+# Диагностика (ТЗ #5, шаг 9 — §14): операции применения и жизненный цикл
+# сценариев в одном ограниченном журнале; наружу — GET /api/diagnostics/events.
+_diagnostics = DiagnosticsJournal()
+set_diagnostics_journal(_diagnostics)
 # Снимок подтверждённого состояния (ТЗ #5, шаг 8 — §13): атомарный файл,
 # команды/жизненный цикл сценария/останов сервера сохраняют, старт —
 # восстанавливает (повреждённый или чужой снимок = начальные значения
@@ -92,11 +99,15 @@ _snapshot_store = SnapshotStore(
     active=lambda: (engine.running if (engine := get_scenario_engine()) else False),
 )
 
-set_services(_bus, _storage)
+# Журнал записей теперь доходит и до загрузки состояний: routes.load_state
+# отмечает восстановленные значения в сверке со станцией (замечено аудитом
+# §14 — проводка была, вызов без ledger).
+set_services(_bus, _storage, ledger=_ledger, diagnostics=_diagnostics)
 # Загрузка сохранённого состояния (routes.load_state) — тоже граница
 # применения; после неё снимок переносит загруженные значения (§13.2).
 set_snapshot_hook(_snapshot_store.save)
 app.include_router(router)
+app.include_router(diagnostics_router)
 # Сценарии пишут через ту же шину; в режиме real движок недоступен — запись
 # ушла бы во внешний сервер, то есть в настоящий ПЛК. Писатель обёрнут
 # журналом: движок не знает о нём, а сверка со станцией получает все записи.
@@ -120,6 +131,7 @@ set_scenario_engine(
         ownership=_ownership,
         journal_path=Path(settings.SCENARIO_JOURNAL_PATH),
         on_transition=lambda _phase: _snapshot_store.save(),
+        on_event=_diagnostics.record_scenario,
     )
 )
 app.include_router(scenario_router)
@@ -298,6 +310,26 @@ _STATUS_TO_HTTP = {
 }
 
 
+def _record_operation(
+    result: dict[str, Any], signals: List[str], elapsed_s: float, source: str
+) -> None:
+    """Операция применения — в журнал диагностики (§14); отказ тоже событие."""
+    revisions = {
+        signal_id: result["results"][signal_id]["revision"]
+        for signal_id in result["applied"]
+        if "revision" in result["results"][signal_id]
+    }
+    _diagnostics.record_operation(
+        op_id=str(result.get("op_id") or "-"),
+        source=source,
+        status=str(result.get("status")),
+        signals=signals,
+        errors=list(result.get("errors") or []),
+        duration_ms=elapsed_s * 1000.0,
+        revisions=revisions,
+    )
+
+
 def _reject_by_code(res: dict[str, Any], signal_id: str) -> HTTPException:
     """Ошибка проверки/записи одной команды → HTTP-статус."""
     code = res.get("code")
@@ -320,6 +352,7 @@ async def write_signal(req: WriteSignalRequest) -> dict:
     # по-сигнально (код owned → 409), остальные ручная правка менять может.
     ensure_manual_writes_allowed(exclude={"scenario"})
     expected = {req.id: req.expected_revision} if req.expected_revision is not None else None
+    started = time.monotonic()
     result = await _bus.apply_changes(
         {req.id: req.value},
         source="manual",
@@ -328,6 +361,7 @@ async def write_signal(req: WriteSignalRequest) -> dict:
         require_writable=True,
         contract="api",
     )
+    _record_operation(result, [req.id], time.monotonic() - started, "manual")
     if result["status"] == "conflict":
         raise HTTPException(status_code=409, detail=result["error"])
     res = result["results"].get(req.id, {})
@@ -354,6 +388,7 @@ async def write_batch(req: WriteBatchRequest) -> dict:
     # §7: пакет проверяется целиком до записи; ошибка проверки отклоняет
     # пакет, значения не меняются. Ответ честный: применённые, ошибки,
     # результат по каждому сигналу.
+    started = time.monotonic()
     result = await _bus.apply_changes(
         req.values,
         source="manual_batch",
@@ -362,6 +397,7 @@ async def write_batch(req: WriteBatchRequest) -> dict:
         require_writable=True,
         contract="api",
     )
+    _record_operation(result, list(req.values), time.monotonic() - started, "manual_batch")
     if result["status"] == "conflict":
         raise HTTPException(status_code=409, detail=result["error"])
     now = datetime.now(timezone.utc)
@@ -421,6 +457,7 @@ async def reset_signals(req: ResetRequest) -> dict:
         if default is None:
             default = signal_types.default_for(cfg.get("type") or "Boolean")
         values[signal_id] = default
+    started = time.monotonic()
     result = await _bus.apply_changes(
         values,
         source="reset",
@@ -428,6 +465,7 @@ async def reset_signals(req: ResetRequest) -> dict:
         require_writable=True,
         contract="api",
     )
+    _record_operation(result, chosen, time.monotonic() - started, "reset")
     if result["status"] == "conflict":
         raise HTTPException(status_code=409, detail=result["error"])
     now = datetime.now(timezone.utc)

@@ -126,12 +126,19 @@ class ScenarioEngine:
         monotonic: Callable[[], float] = time.monotonic,
         journal_limit: int = 200,
         on_transition: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        run_limit: int = 50,
     ) -> None:
         self._writer_factory = writer_factory
         self._ownership = ownership
         # Граница жизненного цикла для снимка состояния (шаг 8, §13.2):
         # пауза, остановка, завершение и ошибка — момент сохранить.
         self._on_transition = on_transition
+        # Диагностика жизненного цикла (шаг 9, §14): структурные события
+        # (старт/пауза/…/ошибка, владение, конфликты) уходят наблюдателю;
+        # сбой наблюдателя прогон не роняет.
+        self._on_event = on_event
+        self._run_limit = run_limit
         self._configs: Dict[str, Mapping[str, Any]] = {cfg["id"]: cfg for cfg in configs}
         self._known = tuple(self._configs)
         # Воспроизводимые режимы из реальных записей. Оставляем только те,
@@ -264,6 +271,20 @@ class ScenarioEngine:
             conflicts = self._ownership.acquire(owner, signals)
             if conflicts:
                 listing = "; ".join(f"{c.signal_id} — «{c.owner.title}»" for c in conflicts)
+                # §14: конфликтующие сигналы — в диагностике, отказ целиком.
+                self._emit(
+                    "start_rejected",
+                    title=title,
+                    code="signals_busy",
+                    conflicts=[
+                        {
+                            "signal_id": c.signal_id,
+                            "owner_id": c.owner.id,
+                            "owner_title": c.owner.title,
+                        }
+                        for c in conflicts
+                    ],
+                )
                 raise ScenarioError(
                     "signals_busy",
                     f"Запуск отклонён: сигналы под владением другого прогона ({listing})",
@@ -278,6 +299,15 @@ class ScenarioEngine:
         logger.info(
             "scenario run %s started: title=%s signals=%d", run_id, title, len(signals)
         )
+        # §14: старт и полученное владение — в диагностике.
+        self._emit(
+            "started",
+            run_id=run_id,
+            title=title,
+            seed=status.get("seed"),
+            signals=sorted(signals),
+        )
+        self._prune_runs()
         return self.status()
 
     async def start(
@@ -393,6 +423,29 @@ class ScenarioEngine:
         except Exception:
             logger.exception("snapshot hook failed on phase %s", phase)
 
+    def _emit(self, event: str, **fields: Any) -> None:
+        """Сообщить диагностике о событии жизненного цикла (§14); сбой глотается."""
+        if self._on_event is None:
+            return
+        try:
+            self._on_event({"event": event, **fields})
+        except Exception:
+            logger.exception("diagnostics hook failed on event %s", event)
+
+    def _prune_runs(self) -> None:
+        """Вытеснить старейшие неактивные прогоны за пределом run_limit (§14).
+
+        Прогоны живут в памяти сессии; без вытеснения список статуса и
+        память растут без ограничений. Активные не трогаются никогда.
+        """
+        if len(self._runs) <= self._run_limit:
+            return
+        for run_id in list(self._runs):
+            if len(self._runs) <= self._run_limit:
+                break
+            if not self._runs[run_id].active:
+                del self._runs[run_id]
+
     async def pause(self, run_id: Optional[str] = None) -> Dict[str, Any]:
         """Пауза прогона (§9.1): смена потоков замирает, владение сохраняется."""
         run = self._select_run(run_id, active_only=True)
@@ -403,6 +456,7 @@ class ScenarioEngine:
             run.status["phase"] = "paused"
             self._notify_transition("paused")
             logger.info("scenario run %s paused", run.run_id)
+            self._emit("paused", run_id=run.run_id)
         return self.status()
 
     async def resume(self, run_id: Optional[str] = None) -> Dict[str, Any]:
@@ -416,6 +470,7 @@ class ScenarioEngine:
             run.pause_event.set()
             run.status["phase"] = run.pre_pause_phase
             logger.info("scenario run %s resumed after %.3fs pause", run.run_id, delta)
+            self._emit("resumed", run_id=run.run_id, pause_s=round(delta, 3))
         return self.status()
 
     async def stop(self, run_id: Optional[str] = None) -> Dict[str, Any]:
@@ -440,8 +495,17 @@ class ScenarioEngine:
                 run.status["phase"] = "stopped"
                 self._notify_transition("stopped")
                 logger.info("scenario run %s (error) acknowledged stopped", run.run_id)
+                # Событие «остановлен» здесь: отмена активного прогона
+                # сообщает его сам, из _supervise (одно место на путь).
+                self._emit("stopped", run_id=run.run_id, error_acknowledged=True)
             if run.status["phase"] in ("stopped", "finished") and self._ownership is not None:
-                self._ownership.release(run.owner.id)
+                freed = self._ownership.release(run.owner.id)
+                if freed:
+                    self._emit(
+                        "ownership_released",
+                        run_id=run.run_id,
+                        signals=sorted(freed),
+                    )
         return self.status()
 
     # -- проигрывание -------------------------------------------------------
@@ -457,17 +521,49 @@ class ScenarioEngine:
             await runner(run)
             run.status["phase"] = "finished"
             self._notify_transition("finished")
+            # §14: завершение с агрегатами прогона (высокочастотные записи
+            # в журнал не идут по одной — только счётчики).
+            self._emit(
+                "finished",
+                run_id=run.run_id,
+                writes=run.status["writes"],
+                write_failures=run.status["write_failures"],
+                episodes=run.status["episode"],
+            )
         except asyncio.CancelledError:
             run.status["phase"] = "stopped"
             self._notify_transition("stopped")
+            self._emit(
+                "stopped",
+                run_id=run.run_id,
+                writes=run.status["writes"],
+                write_failures=run.status["write_failures"],
+            )
         except Exception as exc:  # цикл не должен падать молча
             logger.exception("scenario run %s crashed", run.run_id)
             run.status["phase"] = "error"
             run.status["error"] = type(exc).__name__
             self._notify_transition("error")
+            # §14: ошибка с шагом, на котором возникла (эпизод и фаза прогона).
+            self._emit(
+                "error",
+                run_id=run.run_id,
+                error=type(exc).__name__,
+                detail=str(exc),
+                episode=run.status["episode"],
+                phase_before=run.pre_pause_phase,
+                writes=run.status["writes"],
+                write_failures=run.status["write_failures"],
+            )
         finally:
             if run.status["phase"] in ("finished", "stopped") and self._ownership is not None:
-                self._ownership.release(run.owner.id)
+                freed = self._ownership.release(run.owner.id)
+                if freed:
+                    self._emit(
+                        "ownership_released",
+                        run_id=run.run_id,
+                        signals=sorted(freed),
+                    )
 
     async def _run(self, run: _Run, seed: int, kinds: List[str], once: bool) -> None:
         rng = random.Random(seed)

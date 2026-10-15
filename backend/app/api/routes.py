@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,15 +32,19 @@ class StateServiceHolder:
     # Журнал timestamped-записей (опционален): восстановление состояния —
     # тоже источник значений, сверка со станцией должна его видеть.
     ledger = None
+    # Журнал диагностики (ТЗ #5 §14, опционален): загрузка состояния —
+    # операция применения, попадает в один журнал с остальными.
+    diagnostics = None
 
 
 _holder = StateServiceHolder()
 
 
-def set_services(bus, storage: StateStorage, ledger=None) -> None:
+def set_services(bus, storage: StateStorage, ledger=None, diagnostics=None) -> None:
     _holder.bus = bus
     _holder.storage = storage
     _holder.ledger = ledger
+    _holder.diagnostics = diagnostics
 
 
 # Снимок состояния (ТЗ #5 §13) сохраняется и после успешной загрузки файла
@@ -94,12 +99,28 @@ async def load_state(req: LoadRequest) -> Dict[str, Any]:
     # Через общий механизм (ТЗ #5 §6): проверка типа и прав, подтверждение
     # (ревизия/источник state_load). Восстановление состояния — не пакет
     # команд: применяется по сигнально с честным отчётом об ошибках.
+    started = time.monotonic()
     result = await _holder.bus.apply_changes(
         signals,
         source="state_load",
         require_writable=True,
         contract="file",
     )
+    if _holder.diagnostics is not None:
+        revisions = {
+            signal_id: result["results"][signal_id]["revision"]
+            for signal_id in result["applied"]
+            if "revision" in result["results"][signal_id]
+        }
+        _holder.diagnostics.record_operation(
+            op_id=str(result.get("op_id") or "-"),
+            source="state_load",
+            status=str(result.get("status")),
+            signals=list(signals),
+            errors=list(result["errors"]),
+            duration_ms=(time.monotonic() - started) * 1000.0,
+            revisions=revisions,
+        )
     loaded_count = len(result["applied"])
     errors = list(result["errors"])
     if _holder.ledger is not None:

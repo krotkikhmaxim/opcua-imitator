@@ -224,3 +224,24 @@ def test_ws_connect_receives_snapshot_then_contiguous_seq():
             delta = ws.receive_json()
             assert delta["type"] == "signals_update"
             assert delta["seq"] == snapshot["seq"] + 1
+
+
+def test_two_clients_receive_identical_deltas():
+    """§16 Multi-client: несколько UI получают одни и те же подтверждённые дельты."""
+    from fastapi.testclient import TestClient
+
+    from app.main import _cache, _values_feed, app
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as first, client.websocket_connect("/ws") as second:
+            snap_a = first.receive_json()
+            snap_b = second.receive_json()
+            assert snap_a["type"] == snap_b["type"] == "signals_snapshot"
+            assert snap_a["seq"] == snap_b["seq"]
+            assert set(snap_a["signals"]) == {cfg["id"] for cfg in _cache.config}
+
+            client.portal.start_task_soon(_values_feed.tick)
+            delta_a = first.receive_json()
+            delta_b = second.receive_json()
+            assert delta_a == delta_b  # одна рассылка, одинаковые сообщения
+            assert delta_a["seq"] == snap_a["seq"] + 1
