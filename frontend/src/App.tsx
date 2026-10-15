@@ -13,7 +13,7 @@ import TimelineStrip from './components/playback/TimelineStrip'
 import SchematicView from './components/schematic/SchematicView'
 import StationEchoPanel from './components/station/StationEchoPanel'
 import { heartbeatApi, schematicApi, signalsApi } from './api'
-import { HeartbeatResponse, SchematicBridge, Signal } from './types'
+import { HeartbeatResponse, SchematicBridge, Signal, WriteBatchResponse } from './types'
 import './App.css'
 
 interface SignalsResponse {
@@ -108,6 +108,9 @@ export default function App() {
         type: s.type,
         writable: s.writable,
         value: s.value,
+        revision: s.revision,
+        owner: s.owner,
+        owner_id: s.owner_id,
         direction: s.direction,
         channel: s.channel,
         module: s.module,
@@ -221,12 +224,31 @@ export default function App() {
     })
   }, [])
 
+  // §8: в представления попадает только подтверждённый сервером результат
+  // команды; оптимистичной подмены значения нет.
+  const applyConfirmed = useCallback(
+    (res: WriteBatchResponse) => {
+      if (!res.results) return
+      const confirmed: Record<string, unknown> = {}
+      for (const [id, entry] of Object.entries(res.results)) {
+        if (entry.status === 'applied') confirmed[id] = entry.value
+      }
+      if (Object.keys(confirmed).length > 0) applyDeltas(confirmed)
+    },
+    [applyDeltas],
+  )
+
   const applyChanges = useCallback(async () => {
     const values: Record<string, boolean | number | string> = {}
+    const expected_revisions: Record<string, number> = {}
     for (const id of Object.keys(drafts)) {
       const cfg = signalsById.current[id]
       if (!cfg || !cfg.writable) continue
       values[id] = draftToValue(cfg, drafts[id])
+      // §8: ревизия на момент чтения клиентом; если она ушла — сервер
+      // отклонит пакет, и мы запросим актуальное состояние, а не перезапишем
+      // чужое изменение незаметно.
+      if (typeof cfg.revision === 'number') expected_revisions[id] = cfg.revision
     }
     const ids = Object.keys(values)
     if (ids.length === 0) {
@@ -235,7 +257,12 @@ export default function App() {
     }
     setApplying(true)
     try {
-      const res = await signalsApi.writeBatch(values)
+      const res = await signalsApi.writeBatch(values, {
+        op_id: crypto.randomUUID(),
+        expected_revisions:
+          Object.keys(expected_revisions).length > 0 ? expected_revisions : undefined,
+      })
+      applyConfirmed(res)
       if (res.errors.length > 0) {
         showStatus('err', `Применено ${res.applied.length} из ${ids.length}. Ошибки: ${res.errors.join('; ')}`)
       } else {
@@ -244,11 +271,64 @@ export default function App() {
       resetDrafts(res.applied)
       refreshSignals()
     } catch (e: any) {
+      // §8: при конфликте (устаревший снимок, владение) — запросить
+      // актуальное состояние сервера, а не угадывать его локально.
       showStatus('err', e?.response?.data?.detail || 'Ошибка применения значений')
+      refreshSignals()
     } finally {
       setApplying(false)
     }
-  }, [drafts, refreshSignals, resetDrafts, showStatus])
+  }, [drafts, applyConfirmed, refreshSignals, resetDrafts, showStatus])
+
+  // Сброс выбранных (черновых) сигналов к начальным значениям реестра — через
+  // общий механизм применения; таймлайн не затрагивается (ТЗ #5 §8).
+  const resetSelected = useCallback(async () => {
+    const ids = Object.keys(drafts).filter((id) => signalsById.current[id]?.writable)
+    if (ids.length === 0) return
+    setApplying(true)
+    try {
+      const res = await signalsApi.reset(ids)
+      applyConfirmed(res)
+      if (res.errors.length > 0) {
+        showStatus('err', `Сброшено ${res.applied.length} из ${ids.length}. Ошибки: ${res.errors.join('; ')}`)
+      } else {
+        showStatus('ok', `Сброшено к начальным: ${res.applied.length}`)
+      }
+      resetDrafts(res.applied)
+      refreshSignals()
+    } catch (e: any) {
+      showStatus('err', e?.response?.data?.detail || 'Ошибка сброса значений')
+      refreshSignals()
+    } finally {
+      setApplying(false)
+    }
+  }, [drafts, applyConfirmed, refreshSignals, resetDrafts, showStatus])
+
+  const resetAll = useCallback(async () => {
+    if (
+      !window.confirm(
+        'Сбросить ВСЕ записываемые сигналы к начальным значениям реестра?',
+      )
+    )
+      return
+    setApplying(true)
+    try {
+      const res = await signalsApi.reset()
+      applyConfirmed(res)
+      if (res.errors.length > 0) {
+        showStatus('err', `Сброшено ${res.applied.length}. Ошибки: ${res.errors.join('; ')}`)
+      } else {
+        showStatus('ok', `Сброшено к начальным: ${res.applied.length}`)
+      }
+      resetDrafts(Object.keys(drafts))
+      refreshSignals()
+    } catch (e: any) {
+      showStatus('err', e?.response?.data?.detail || 'Ошибка сброса значений')
+      refreshSignals()
+    } finally {
+      setApplying(false)
+    }
+  }, [drafts, applyConfirmed, refreshSignals, resetDrafts, showStatus])
 
   const signalsById = useRef<Record<string, Signal>>({})
   signalsById.current = useMemo(() => {
@@ -435,6 +515,7 @@ export default function App() {
                 deviceBySignal={deviceBySignal}
                 selectedDevice={selectedDevice}
                 onSelectDevice={selectFromMnemo}
+                onWritten={refreshSignals}
               />
               <TruthJournalPanel />
               <StationEchoPanel />
@@ -473,6 +554,24 @@ export default function App() {
               Сбросить
             </button>
           )}
+          {changedCount > 0 && (
+            <button
+              className="signals-cancel"
+              disabled={applying}
+              title="Сбросить выбранные сигналы к начальным значениям реестра"
+              onClick={resetSelected}
+            >
+              ⟲ К начальным ({changedCount})
+            </button>
+          )}
+          <button
+            className="signals-cancel"
+            disabled={applying}
+            title="Сбросить весь записываемый набор к начальным значениям реестра"
+            onClick={resetAll}
+          >
+            ⟲ Всё к начальным
+          </button>
         </div>
         {groups.map(([channel, list]) => (
           <div className="signals-group" key={channel}>

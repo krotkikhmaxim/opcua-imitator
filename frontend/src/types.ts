@@ -36,6 +36,11 @@ export interface Signal {
   type: string
   writable: boolean
   value: boolean | number | string | null
+  /** Ревизия подтверждённого состояния (ТЗ #5 §6.3); растёт с каждой записью. */
+  revision?: number
+  /** Кто держит сигнал сейчас (ТЗ #5 §9.2), если держит. */
+  owner?: string | null
+  owner_id?: string | null
   direction?: string
   channel?: string
   module?: string
@@ -54,10 +59,23 @@ export interface WriteResponse {
   value: boolean | number | string
 }
 
+/** Результат одной команды пакета (ТЗ #5 §7): применён или причина отказа. */
+export interface WriteResultEntry {
+  status: 'applied' | 'rejected' | 'not_applied' | 'failed'
+  value?: boolean | number | string
+  revision?: number
+  code?: string
+  error?: string
+}
+
 export interface WriteBatchResponse {
   status: string
   applied: string[]
   errors: string[]
+  /** Подтверждённые значения по каждому сигналу; рендерим только подтверждённое (§8). */
+  results?: Record<string, WriteResultEntry>
+  op_id?: string
+  replayed?: boolean
 }
 
 export type MessageKind = 'success' | 'error' | 'info'

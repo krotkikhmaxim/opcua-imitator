@@ -28,8 +28,22 @@ const api = axios.create({
 export const signalsApi = {
   write: (id: string, value: boolean | number | string) =>
     api.post<WriteResponse>('/signals/write', { id, value }).then((r) => r.data),
-  writeBatch: (values: Record<string, boolean | number | string>) =>
-    api.post<WriteBatchResponse>('/signals/write_batch', { values }).then((r) => r.data),
+  writeBatch: (
+    values: Record<string, boolean | number | string>,
+    opts?: { op_id?: string; expected_revisions?: Record<string, number> },
+  ) =>
+    api
+      .post<WriteBatchResponse>('/signals/write_batch', {
+        values,
+        op_id: opts?.op_id,
+        expected_revisions: opts?.expected_revisions,
+      })
+      .then((r) => r.data),
+  /** Сброс к начальным значениям реестра (ТЗ #5 §8); без списка — весь набор. */
+  reset: (signal_ids?: string[]) =>
+    api
+      .post<WriteBatchResponse>('/signals/reset', { signal_ids })
+      .then((r) => r.data),
 }
 
 export const statesApi = {

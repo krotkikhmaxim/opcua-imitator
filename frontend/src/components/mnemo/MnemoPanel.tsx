@@ -22,6 +22,8 @@ interface Props {
   deviceBySignal?: Record<string, string>
   selectedDevice?: string | null
   onSelectDevice?: (dt: string | null) => void
+  /** Вызывается после записи (успех или отказ): обновить подтверждённые состояния. */
+  onWritten?: () => void
 }
 
 function isBool(signal: Signal): boolean {
@@ -42,6 +44,7 @@ export default function MnemoPanel({
   deviceBySignal,
   selectedDevice,
   onSelectDevice,
+  onWritten,
 }: Props) {
   const [direction, setDirection] = useState<DirectionFilter>('all')
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
@@ -74,12 +77,24 @@ export default function MnemoPanel({
     const next = !Boolean(s.value)
     setBusyIds((prev) => new Set(prev).add(s.id))
     try {
-      const res = await signalsApi.writeBatch({ [s.id]: next })
+      // ТЗ #5 §8: команда серверу, а не локальная замена — идемпотентный
+      // op_id и ревизия на момент чтения; конфликт вернёт отказ, и состояние
+      // запросится заново, а не перезапишется незаметно.
+      const res = await signalsApi.writeBatch(
+        { [s.id]: next },
+        {
+          op_id: crypto.randomUUID(),
+          expected_revisions:
+            typeof s.revision === 'number' ? { [s.id]: s.revision } : undefined,
+        },
+      )
       if (res.errors.length > 0) {
         showStatus('err', `${s.name}: ${res.errors.join('; ')}`)
+        onWritten?.()
       }
     } catch (e: any) {
       showStatus('err', e?.response?.data?.detail || `Ошибка записи «${s.name}»`)
+      onWritten?.()
     } finally {
       setBusyIds((prev) => {
         const next2 = new Set(prev)
