@@ -54,6 +54,7 @@ def _translate(exc: PlaybackError) -> HTTPException:
         "unreadable": 500,
         "bad_rate": 400,
         "bad_position": 400,
+        "frozen": 409,
     }
     status = code_by_reason.get(exc.code, 409)
     return HTTPException(status_code=status, detail=exc.message)

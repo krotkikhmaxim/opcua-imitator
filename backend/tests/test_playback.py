@@ -404,7 +404,18 @@ def client():
         yield test_client
 
 
-def test_http_load_play_blocks_manual_write_then_stop_releases(tmp_path, client):
+def test_http_load_play_blocks_manual_write_then_stop_releases(tmp_path, client, monkeypatch):
+    """Взаимное исключение «плейбэк ↔ ручная запись» при включённом плейбэке.
+
+    По умолчанию (ТЗ #5, §2) плейбэк заморожен — это пинуется отдельно в
+    test_playback_freeze.py; здесь флаг singleton-сервиса на время теста
+    снимается, чтобы механика блокировок осталась покрытой. Объект сервиса
+    не подменяется: предикат «playback» в реестре связан с самим объектом.
+    """
+    from app import main as app_main
+
+    monkeypatch.setattr(app_main._playback, "_writes_enabled", True)
+
     path = _trend_path(tmp_path, _short_rows())
 
     loaded = client.post("/api/playback/load_path", json={"path": path})

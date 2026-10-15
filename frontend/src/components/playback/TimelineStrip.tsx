@@ -93,6 +93,9 @@ export default function TimelineStrip() {
   const trendNowMs = t0Ms !== null ? t0Ms + status.position_ms : null
   const active = status.phase === 'playing' || status.phase === 'paused'
   const onWindow = status.start_ms > 0 || status.end_ms !== null
+  // Заморозка таймлайна (ТЗ #5): полоса остаётся видимой, но помечена как
+  // отключённая от управления, «Продолжить» не даётся.
+  const frozen = status.writes_enabled === false
 
   return (
     <div className={`tl-strip${active ? ' tl-strip-run' : ' tl-strip-idle'}`}>
@@ -117,18 +120,22 @@ export default function TimelineStrip() {
         </span>
       )}
 
+      {frozen && <span className="tl-strip-text">· отключён от управления сервером</span>}
+
       {halted && (
         <span className="tl-strip-banner">
           Таймлайн остановлен — применено: {halted}
-          <button
-            type="button"
-            className="tl-strip-btn"
-            disabled={busy || Boolean(scenario?.running)}
-            title={scenario?.running ? 'Сначала остановите сценарий' : 'Продолжить с места останова'}
-            onClick={resume}
-          >
-            ▶ Продолжить
-          </button>
+          {!frozen && (
+            <button
+              type="button"
+              className="tl-strip-btn"
+              disabled={busy || Boolean(scenario?.running)}
+              title={scenario?.running ? 'Сначала остановите сценарий' : 'Продолжить с места останова'}
+              onClick={resume}
+            >
+              ▶ Продолжить
+            </button>
+          )}
           <button
             type="button"
             className="tl-strip-x"

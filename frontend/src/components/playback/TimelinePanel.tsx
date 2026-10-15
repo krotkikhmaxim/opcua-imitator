@@ -102,6 +102,8 @@ export default function TimelinePanel({
   const position = Math.min(status.position_ms, duration ?? status.position_ms)
   const trendNowMs = t0Ms !== null ? t0Ms + status.position_ms : null
   const running = status.phase === 'playing' || status.phase === 'paused'
+  // Заморозка таймлайна (ТЗ #5): просмотр возможен, серверных записей нет.
+  const frozen = status.writes_enabled === false
 
   const loadByPath = () => {
     const trimmed = path.trim()
@@ -225,6 +227,13 @@ export default function TimelinePanel({
         </p>
       )}
 
+      {frozen && (
+        <div className="tl-frozen" role="status">
+          Таймлайн отключён от управления сервером (заморожен) — значения
+          сигналов не меняются.
+        </div>
+      )}
+
       {status.loaded && (
         <>
           <div className="tl-meta">
@@ -327,7 +336,8 @@ export default function TimelinePanel({
               <button
                 type="button"
                 className="tl-btn tl-btn-main"
-                disabled={busy}
+                disabled={busy || frozen}
+                title={frozen ? 'Таймлайн заморожен' : undefined}
                 onClick={() =>
                   status.paused ? run(() => playbackApi.control('resume')) : playWindow()
                 }
@@ -338,7 +348,7 @@ export default function TimelinePanel({
               <button
                 type="button"
                 className="tl-btn"
-                disabled={busy}
+                disabled={busy || frozen}
                 onClick={() => run(() => playbackApi.control('pause'))}
               >
                 ‖ Пауза
@@ -347,7 +357,7 @@ export default function TimelinePanel({
             <button
               type="button"
               className="tl-btn"
-              disabled={busy || !running}
+              disabled={busy || frozen || !running}
               onClick={() => run(() => playbackApi.control('stop'))}
             >
               ■ Стоп
@@ -380,7 +390,7 @@ export default function TimelinePanel({
             <button
               type="button"
               className="tl-btn"
-              disabled={busy || t0Ms === null || !jumpTo}
+              disabled={busy || frozen || t0Ms === null || !jumpTo}
               onClick={jump}
             >
               Перейти

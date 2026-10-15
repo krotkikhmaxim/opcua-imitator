@@ -90,7 +90,12 @@ _registry.register(
 # Плейбэк трендов пишет через тот же обёрнутый журналом writer, что и
 # сценарий: одна дверь записи, один журнал для сверки. В реестре он держит
 # шину от запуска до остановки/финала — пауза шину не отпускает.
-_playback = PlaybackService(_ledger.wrap(_bus.write_value_at))
+# Заморозка таймлайна (ТЗ #5, §2): по умолчанию запись из тренда в рабочее
+# состояние сигналов запрещена — PLAYBACK_WRITES_ENABLED=true её снимает.
+_playback = PlaybackService(
+    _ledger.wrap(_bus.write_value_at),
+    writes_enabled=settings.PLAYBACK_WRITES_ENABLED,
+)
 _registry.register("playback", lambda: _playback.bus_held)
 set_playback_service(
     _playback, lambda: {cfg["id"]: cfg for cfg in _cache.config},

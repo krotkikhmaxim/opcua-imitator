@@ -67,11 +67,16 @@ class PlaybackService:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Clock = _utc_now,
+        writes_enabled: bool = True,
     ) -> None:
         self._writer = writer
         self._monotonic = monotonic
         self._sleep = sleep
         self._clock = clock
+        # Заморозка таймлайна (ТЗ #5, §2): False — play/seek отклоняются,
+        # ни одна строка тренда не доходит до writer. Флаг ставится при
+        # создании (из настроек) и не меняется на ходу.
+        self._writes_enabled = writes_enabled
         self._source: Optional[XlsxSource] = None
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
@@ -84,6 +89,11 @@ class PlaybackService:
         self._start_ms = 0
         self._end_ms: Optional[int] = None
         self._status: Dict[str, Any] = self._fresh_status()
+
+    @property
+    def writes_enabled(self) -> bool:
+        """Запись из таймлайна в сигналы разрешена (не заморожен)."""
+        return self._writes_enabled
 
     def _fresh_status(self) -> Dict[str, Any]:
         return {
@@ -100,6 +110,7 @@ class PlaybackService:
             "duration_ms": None,
             "rate": 1.0,
             "paused": False,
+            "writes_enabled": self._writes_enabled,
             "rows_played": 0,
             "writes": 0,
             "write_failures": 0,
@@ -217,6 +228,11 @@ class PlaybackService:
         значения на старте участка пишутся текущим wall-временем. Конец
         включителен: строка ``end_ms`` пишется, дальше прогон завершается.
         """
+        if not self._writes_enabled:
+            raise PlaybackError(
+                "frozen",
+                "Таймлайн отключён от управления сервером (заморожен)",
+            )
         if not self.loaded:
             raise PlaybackError("not_loaded", "Сначала загрузите файл тренда")
         if self._task is not None and not self._task.done():
@@ -286,6 +302,11 @@ class PlaybackService:
         Позиция за уже проигранным диапазоном допустима — скан сам обнаружит
         конец файла и остановится на последней строке.
         """
+        if not self._writes_enabled:
+            raise PlaybackError(
+                "frozen",
+                "Таймлайн отключён от управления сервером (заморожен)",
+            )
         self._require_running("переход")
         if target_ms < 0:
             raise PlaybackError("bad_position", "Позиция не может быть отрицательной")
@@ -331,6 +352,8 @@ class PlaybackService:
     def status(self) -> Dict[str, Any]:
         self._status["position_ms"] = int(max(0.0, self.position_ms()))
         self._status["duration_ms"] = self._duration_ms
+        # флаг заморозки — текущий, а не от последнего load/unload
+        self._status["writes_enabled"] = self._writes_enabled
         if self._source is not None:
             self._status["loaded"] = True
         return dict(self._status)

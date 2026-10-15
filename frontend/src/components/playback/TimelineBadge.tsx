@@ -18,14 +18,21 @@ export default function TimelineBadge({ onOpen }: { onOpen?: () => void }) {
   const status = useTimelineStatus(1000)
   if (!status || !status.loaded) return null
 
-  const label = LABELS[status.phase] ?? status.phase
   const t0Ms = parseIsoMs(status.t0)
   const trendNowMs = t0Ms !== null ? t0Ms + status.position_ms : null
+  // Заморозка таймлайна (ТЗ #5): бейдж честно говорит, что управления нет.
+  const frozen = status.writes_enabled === false
 
   const body = (
     <>
-      Таймлайн: {label}
-      {trendNowMs !== null && ` · ${formatWallTime(trendNowMs)}`}
+      {frozen ? (
+        <>Таймлайн: отключён от управления</>
+      ) : (
+        <>
+          Таймлайн: {LABELS[status.phase] ?? status.phase}
+          {trendNowMs !== null && ` · ${formatWallTime(trendNowMs)}`}
+        </>
+      )}
     </>
   )
 

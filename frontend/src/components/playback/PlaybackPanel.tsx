@@ -91,6 +91,9 @@ export default function PlaybackPanel({ onNotify }: Props) {
         status.phase
       ] || status.phase
 
+  // Заморозка таймлайна (ТЗ #5): просмотр возможен, серверных записей нет.
+  const frozen = status.writes_enabled === false
+
   return (
     <section className="pb">
       <div className="pb-head">
@@ -101,6 +104,13 @@ export default function PlaybackPanel({ onNotify }: Props) {
           </span>
         )}
       </div>
+
+      {frozen && (
+        <div className="tl-frozen" role="status">
+          Таймлайн отключён от управления сервером (заморожен) — значения
+          сигналов не меняются.
+        </div>
+      )}
 
       <div className="pb-load">
         <input
@@ -153,7 +163,8 @@ export default function PlaybackPanel({ onNotify }: Props) {
               <button
                 type="button"
                 className="pb-btn pb-btn-main"
-                disabled={busy}
+                disabled={busy || frozen}
+                title={frozen ? 'Таймлайн заморожен' : undefined}
                 onClick={() =>
                   run(() => playbackApi.control(status.paused ? 'resume' : 'play'))
                 }
@@ -164,7 +175,7 @@ export default function PlaybackPanel({ onNotify }: Props) {
               <button
                 type="button"
                 className="pb-btn"
-                disabled={busy}
+                disabled={busy || frozen}
                 onClick={() => run(() => playbackApi.control('pause'))}
               >
                 ‖ Пауза
@@ -173,7 +184,9 @@ export default function PlaybackPanel({ onNotify }: Props) {
             <button
               type="button"
               className="pb-btn"
-              disabled={busy || status.phase === 'idle' || status.phase === 'stopped'}
+              disabled={
+                busy || frozen || status.phase === 'idle' || status.phase === 'stopped'
+              }
               onClick={() => run(() => playbackApi.control('stop'))}
             >
               ■ Стоп
@@ -182,7 +195,7 @@ export default function PlaybackPanel({ onNotify }: Props) {
               скорость
               <select
                 value={status.rate}
-                disabled={busy}
+                disabled={busy || frozen}
                 onChange={(e) =>
                   run(() => playbackApi.control('rate', { rate: parseFloat(e.target.value) }))
                 }
@@ -199,7 +212,7 @@ export default function PlaybackPanel({ onNotify }: Props) {
                 min={0}
                 step={1}
                 placeholder="0"
-                disabled={busy}
+                disabled={busy || frozen}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') seekSeconds((e.target as HTMLInputElement).value)
                 }}

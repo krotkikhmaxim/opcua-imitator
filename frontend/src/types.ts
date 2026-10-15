@@ -150,6 +150,9 @@ export interface PlaybackStatus {
   duration_ms: number | null
   rate: number
   paused: boolean
+  // Заморозка таймлайна (ТЗ #5): false — плейбэк не пишет в сигналы,
+  // пуск/переход отклоняются сервером.
+  writes_enabled: boolean
   rows_played: number
   writes: number
   write_failures: number

@@ -31,6 +31,12 @@ class Settings:
         str(Path("/home/max/projects/asutpv1_bigllm/data/telemetry/archive.sqlite3")),
     )
     PLAYBACK_MAX_CHANGES: int = int(os.getenv("PLAYBACK_MAX_CHANGES", "200000"))
+    # Заморозка таймлайна (ТЗ #5, §2): плейбэк трендов не пишет в рабочее
+    # состояние сигналов. Код и данные сохранены для возвращения к задаче;
+    # флаг снимается отдельным решением владельца, не на ходу.
+    PLAYBACK_WRITES_ENABLED: bool = os.getenv(
+        "PLAYBACK_WRITES_ENABLED", "false"
+    ).lower() in ("1", "true", "yes", "on")
     # Станция asutpv1_bigllm: база прокси, таймаут и проект по умолчанию
     # для снимков live_batch (панель «эхо» и сверка).
     STATION_URL: str = os.getenv("STATION_URL", "http://127.0.0.1:8080")
