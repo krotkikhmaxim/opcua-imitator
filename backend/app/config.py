@@ -20,6 +20,14 @@ class Settings:
     VERIFICATION_DIR: str = os.getenv("VERIFICATION_DIR", "scenario_runs/verifications")
     # WS-фид дельт значений: интервал рассылки в секундах; 0 отключает фид.
     VALUES_FEED_INTERVAL_S: float = float(os.getenv("VALUES_FEED_INTERVAL_S", "0.5"))
+    # Снимок состояния сервера (ТЗ #5 §13): путь файла и интервал
+    # периодического снимка ВО ВРЕМЯ сценария; 0 отключает периодический
+    # (команды и жизненный цикл сохраняют всегда).
+    PERSIST_SNAPSHOT_PATH: str = os.getenv(
+        "PERSIST_SNAPSHOT_PATH",
+        str(Path(__file__).resolve().parent.parent.parent / "data" / "server_state.json"),
+    )
+    PERSIST_INTERVAL_S: float = float(os.getenv("PERSIST_INTERVAL_S", "5"))
     # Плейбэк XLSX-трендов: лимит размера файла (экспорт владельца — сотни
     # мегабайт) и лимит прямой загрузки через HTTP (большие файлы — по пути
     # сервер-сайд, PLAYBACK_UPLOAD_DIR).

@@ -343,6 +343,24 @@ class OPCSignalBus:
             _remember(self._apply_history, op_id, body, response)
             return response
 
+    async def restore_values(self, values: Dict[str, Any]) -> int:
+        """Применить восстановленные значения к OPC UA без учёта команд (§13.3).
+
+        Карточки кэша уже переносит ``SignalCache.restore``; здесь значения
+        выставляются в адресное пространство встроенного сервера, чтобы
+        внешние клиенты увидели их сразу после старта. Ревизии и источники
+        это не трогает — восстановление не команда применения.
+        """
+        applied = 0
+        if self.mode == OPCMode.SERVER and self._embedded is not None:
+            for signal_id, value in values.items():
+                try:
+                    if await self._embedded.write_value(signal_id, value):
+                        applied += 1
+                except Exception:
+                    logger.exception("восстановление сигнала %s не удалось", signal_id)
+        return applied
+
     async def close(self) -> None:
         if self._embedded is not None:
             try:

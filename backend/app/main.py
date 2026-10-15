@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.api.archive_routes import router as archive_router
 from app.api.playback_routes import router as playback_router, set_playback_service
-from app.api.routes import router, set_services
+from app.api.routes import router, set_services, set_snapshot_hook
 from app.api.scenario_routes import (
     ensure_manual_writes_allowed,
     get_scenario_engine,
@@ -34,6 +34,7 @@ from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
 from app.services.ownership import OwnershipRegistry
+from app.services.persistence import SnapshotStore, registry_fingerprint
 from app.services.playback.service import PlaybackService
 from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
@@ -74,8 +75,27 @@ _gate = HeartbeatGate(_registry, lambda: _heartbeat)
 # держит его исключительно; шина проверяет владение при каждой записи.
 _ownership = OwnershipRegistry()
 _bus.set_ownership(_ownership)
+# Снимок подтверждённого состояния (ТЗ #5, шаг 8 — §13): атомарный файл,
+# команды/жизненный цикл сценария/останов сервера сохраняют, старт —
+# восстанавливает (повреждённый или чужой снимок = начальные значения
+# с диагностикой; сценарии после рестарта не возобновляются).
+_snapshot_store = SnapshotStore(
+    path=Path(settings.PERSIST_SNAPSHOT_PATH),
+    fingerprint=registry_fingerprint(_cache.config),
+    signal_ids=[cfg["id"] for cfg in _cache.config],
+    read_card=lambda sid: (
+        _cache.get_state(sid).card()
+        if _cache.get_state(sid) is not None
+        else {"value": None, "revision": 0, "source": None, "changed_at": None}
+    ),
+    interval_s=settings.PERSIST_INTERVAL_S,
+    active=lambda: (engine.running if (engine := get_scenario_engine()) else False),
+)
 
 set_services(_bus, _storage)
+# Загрузка сохранённого состояния (routes.load_state) — тоже граница
+# применения; после неё снимок переносит загруженные значения (§13.2).
+set_snapshot_hook(_snapshot_store.save)
 app.include_router(router)
 # Сценарии пишут через ту же шину; в режиме real движок недоступен — запись
 # ушла бы во внешний сервер, то есть в настоящий ПЛК. Писатель обёрнут
@@ -99,6 +119,7 @@ set_scenario_engine(
         simulated=_bus.simulated,
         ownership=_ownership,
         journal_path=Path(settings.SCENARIO_JOURNAL_PATH),
+        on_transition=lambda _phase: _snapshot_store.save(),
     )
 )
 app.include_router(scenario_router)
@@ -157,15 +178,38 @@ _values_feed = ValuesFeed(
 )
 
 
+async def _restore_snapshot() -> None:
+    """Восстановить последний снимок при старте (§13.3).
+
+    Снимок проверяется целиком: повреждённый или несовместимый отбрасывается,
+    сервер стартует с начальными значениями и явной диагностикой. Сценарии
+    после рестарта не возобновляются, владение пусто — источник последнего
+    значения в карточках не путать с владельцем управления.
+    """
+    document, reason = _snapshot_store.load()
+    if document is None:
+        logger.warning("старт с начальными значениями: %s", reason)
+        return
+    restored = _cache.restore(document["signals"])
+    await _bus.restore_values(
+        {sid: card["v"] for sid, card in document["signals"].items()}
+    )
+    logger.info(
+        "восстановлен снимок от %s (%d сигналов)", document.get("created_at"), restored
+    )
+
+
 @app.on_event("startup")
 async def startup() -> None:
     await _bus.connect()
+    await _restore_snapshot()
     global _heartbeat
     if _bus.embedded is not None:
         _heartbeat = HeartbeatService(
             _bus.embedded, [cfg["id"] for cfg in _cache.config]
         )
         logger.info("heartbeat service ready (%d signals)", len(_cache.config))
+    _snapshot_store.start()
     _values_feed.start()
     logger.info("OPC UA bus started in %s mode", _bus.mode)
 
@@ -173,12 +217,15 @@ async def startup() -> None:
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await _values_feed.stop()
+    await _snapshot_store.stop()
     await _station_proxy.aclose()
     engine = get_scenario_engine()
     if engine is not None:
         await engine.stop()
     if _heartbeat is not None:
         await _heartbeat.stop()
+    # Штатный останов — последний снимок перед закрытием шины (§13.2).
+    _snapshot_store.save()
     await _bus.close()
 
 
@@ -286,6 +333,8 @@ async def write_signal(req: WriteSignalRequest) -> dict:
     res = result["results"].get(req.id, {})
     if res.get("status") in ("rejected", "not_applied", "failed"):
         raise _reject_by_code(res, req.id)
+    # §13.2: после успешной команды — снимок завершённой границы применения.
+    _snapshot_store.save()
     body = {
         "status": "ok",
         "id": req.id,
@@ -318,6 +367,8 @@ async def write_batch(req: WriteBatchRequest) -> dict:
     now = datetime.now(timezone.utc)
     for signal_id in result["applied"]:
         _ledger.note(now, signal_id, result["results"][signal_id]["value"])
+    if result["applied"]:
+        _snapshot_store.save()
     body = {
         "status": result["status"],
         "applied": result["applied"],
@@ -382,6 +433,8 @@ async def reset_signals(req: ResetRequest) -> dict:
     now = datetime.now(timezone.utc)
     for signal_id in result["applied"]:
         _ledger.note(now, signal_id, result["results"][signal_id]["value"])
+    if result["applied"]:
+        _snapshot_store.save()
     body = {
         "status": result["status"],
         "applied": result["applied"],

@@ -94,6 +94,26 @@ class SignalCache:
         state.changed_at = changed_at or _utc_now_iso()
         return state.revision
 
+    def restore(self, cards: Dict[str, Dict[str, Any]]) -> int:
+        """Загрузить сохранённые карточки как есть (шаг 8, §13.3).
+
+        Ревизии НЕ растут: восстановление — не команда применения; снимок
+        переносит ревизии, источники и времена прошлого процесса. Неизвестные
+        сигналы пропускает (отпечаток реестра уже сверён вызывающим).
+        Возвращает число восстановленных карточек.
+        """
+        restored = 0
+        for signal_id, card in cards.items():
+            state = self._states.get(signal_id)
+            if state is None:
+                continue
+            state.value = card.get("v")
+            state.revision = int(card.get("r") or 0)
+            state.source = card.get("s")
+            state.changed_at = card.get("t")
+            restored += 1
+        return restored
+
     def set_value(self, signal_id: str, value: Any) -> None:
         """Совместимость: подтверждение без имени источника."""
         self.confirm(signal_id, value)

@@ -125,9 +125,13 @@ class ScenarioEngine:
         clock: Callable[[], datetime] = _utc_now,
         monotonic: Callable[[], float] = time.monotonic,
         journal_limit: int = 200,
+        on_transition: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._writer_factory = writer_factory
         self._ownership = ownership
+        # Граница жизненного цикла для снимка состояния (шаг 8, §13.2):
+        # пауза, остановка, завершение и ошибка — момент сохранить.
+        self._on_transition = on_transition
         self._configs: Dict[str, Mapping[str, Any]] = {cfg["id"]: cfg for cfg in configs}
         self._known = tuple(self._configs)
         # Воспроизводимые режимы из реальных записей. Оставляем только те,
@@ -380,6 +384,15 @@ class ScenarioEngine:
             )
         return active[0]
 
+    def _notify_transition(self, phase: str) -> None:
+        """Сообщить наблюдателю о смене фазы (сбой наблюдателя не критичен)."""
+        if self._on_transition is None:
+            return
+        try:
+            self._on_transition(phase)
+        except Exception:
+            logger.exception("snapshot hook failed on phase %s", phase)
+
     async def pause(self, run_id: Optional[str] = None) -> Dict[str, Any]:
         """Пауза прогона (§9.1): смена потоков замирает, владение сохраняется."""
         run = self._select_run(run_id, active_only=True)
@@ -388,6 +401,7 @@ class ScenarioEngine:
             run.pre_pause_phase = run.status["phase"]
             run.pause_event.clear()
             run.status["phase"] = "paused"
+            self._notify_transition("paused")
             logger.info("scenario run %s paused", run.run_id)
         return self.status()
 
@@ -420,9 +434,11 @@ class ScenarioEngine:
                 except asyncio.CancelledError:
                     pass
                 run.status["phase"] = "stopped"
+                self._notify_transition("stopped")
                 logger.info("scenario run %s stopped", run.run_id)
             elif run.status["phase"] == "error":
                 run.status["phase"] = "stopped"
+                self._notify_transition("stopped")
                 logger.info("scenario run %s (error) acknowledged stopped", run.run_id)
             if run.status["phase"] in ("stopped", "finished") and self._ownership is not None:
                 self._ownership.release(run.owner.id)
@@ -440,12 +456,15 @@ class ScenarioEngine:
         try:
             await runner(run)
             run.status["phase"] = "finished"
+            self._notify_transition("finished")
         except asyncio.CancelledError:
             run.status["phase"] = "stopped"
+            self._notify_transition("stopped")
         except Exception as exc:  # цикл не должен падать молча
             logger.exception("scenario run %s crashed", run.run_id)
             run.status["phase"] = "error"
             run.status["error"] = type(exc).__name__
+            self._notify_transition("error")
         finally:
             if run.status["phase"] in ("finished", "stopped") and self._ownership is not None:
                 self._ownership.release(run.owner.id)

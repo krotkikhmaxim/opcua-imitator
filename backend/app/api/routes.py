@@ -42,6 +42,16 @@ def set_services(bus, storage: StateStorage, ledger=None) -> None:
     _holder.ledger = ledger
 
 
+# Снимок состояния (ТЗ #5 §13) сохраняется и после успешной загрузки файла
+# состояния: это тоже завершённая граница применения. Хук ставит main.py.
+_snapshot_hook = None
+
+
+def set_snapshot_hook(fn) -> None:
+    global _snapshot_hook
+    _snapshot_hook = fn
+
+
 @router.get("/list")
 async def list_states() -> List[Dict[str, Any]]:
     return _holder.storage.list_states()
@@ -96,6 +106,8 @@ async def load_state(req: LoadRequest) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         for signal_id in result["applied"]:
             _holder.ledger.note(now, signal_id, result["results"][signal_id]["value"])
+    if result["applied"] and _snapshot_hook is not None:
+        _snapshot_hook()
 
     await manager.broadcast({
         "type": "state_loaded",
