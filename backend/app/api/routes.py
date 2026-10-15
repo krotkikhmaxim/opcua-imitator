@@ -78,24 +78,21 @@ async def load_state(req: LoadRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(e))
 
     signals = data.get("signals", {})
-    errors: List[str] = []
-    loaded_count = 0
-
-    for signal_id, value in signals.items():
-        cfg = _holder.bus.cache.get_config(signal_id)
-        if cfg is None:
-            errors.append(f"Сигнал {signal_id} не найден в конфигурации")
-            continue
-        if not cfg.get("writable", False):
-            errors.append(f"Сигнал {signal_id} только для чтения")
-            continue
-        ok = await _holder.bus.write_value(signal_id, value)
-        if ok:
-            loaded_count += 1
-            if _holder.ledger is not None:
-                _holder.ledger.note(datetime.now(timezone.utc), signal_id, value)
-        else:
-            errors.append(f"Ошибка записи сигнала {signal_id}")
+    # Через общий механизм (ТЗ #5 §6): проверка типа и прав, подтверждение
+    # (ревизия/источник state_load). Восстановление состояния — не пакет
+    # команд: применяется по сигнально с честным отчётом об ошибках.
+    result = await _holder.bus.apply_changes(
+        signals,
+        source="state_load",
+        require_writable=True,
+        contract="file",
+    )
+    loaded_count = len(result["applied"])
+    errors = list(result["errors"])
+    if _holder.ledger is not None:
+        now = datetime.now(timezone.utc)
+        for signal_id in result["applied"]:
+            _holder.ledger.note(now, signal_id, result["results"][signal_id]["value"])
 
     await manager.broadcast({
         "type": "state_loaded",

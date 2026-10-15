@@ -76,9 +76,28 @@ cd frontend && npm run build
 | POST | `/api/states/export` | Экспорт как скачиваемый файл | `{name, description}` | JSON-файл |
 | POST | `/api/states/import` | Импорт из файла | `file` (multipart) | `{status, filename, signal_count, errors}` |
 | GET | `/api/signals` | Текущие сигналы и значения | — | `{signals}` |
+| POST | `/api/signals/write` | Записать сигнал | `{id, value, op_id?, expected_revision?}` | `{status, id, value, revision, op_id, source}` |
+| POST | `/api/signals/write_batch` | Записать пакет | `{values, op_id?}` | `{status, applied, errors, results, op_id}` |
 | WS | `/ws` | WebSocket-уведомления | — | `{type: "state_loaded", loaded_count, errors}` |
 
 Пример JSON-файла состояния см. в [`docs/ТЗ.md`](docs/ТЗ.md) (раздел 4).
+
+### Единый механизм применения (ТЗ #5, шаг 4)
+
+Все внутренние изменения значений идут через `OPCSignalBus.apply_changes`:
+пакет проверяется целиком до первой записи (сигнал существует, право на
+запись, тип по единой таблице `signal_types`, ожидаемая ревизия) — ошибка
+проверки отклоняет пакет, значения не меняются; затем сигналы применяются
+по одному в порядке передачи с результатом по каждому (частичное выполнение
+возможно только от отказа записи, отката нет). Подтверждённое состояние
+сигнала — `{value, revision, source, changed_at}`; `/api/signals` отдаёт его
+рядом со значением. Повтор команды с тем же `op_id` (окно 4096 команд)
+возвращает сохранённый результат (`"replayed": true`) и не применяется
+дважды; тот же `op_id` с другим телом — конфликт `409`. Статусы команды:
+`applied` / `partial` / `rejected` / `failed`. Ручные записи идут с
+`source: "manual"`, загрузка состояния — `state_load`; сценарии и плейбэк
+пока пишут прежним путём (их источник в карточках появится с владением
+сигналами, шаг 5), heartbeat по-прежнему обновляет только SourceTimestamp.
 
 ## Тесты
 

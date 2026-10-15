@@ -34,7 +34,6 @@ from app.services.opc_bus import OPCMode, OPCSignalBus
 from app.services.playback.service import PlaybackService
 from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
-from app.services import signal_types
 from app.services.signal_cache import SignalCache
 from app.services.station_proxy import StationProxy
 from app.services.storage import StateStorage
@@ -162,6 +161,8 @@ async def get_signals() -> dict:
 
     signals: Dict[str, Any] = {}
     for cfg in _cache.config:
+        state = _cache.get_state(cfg["id"])
+        card = state.card() if state is not None else {}
         signals[cfg["id"]] = {
             "id": cfg["id"],
             "short_id": cfg["id"],
@@ -169,6 +170,9 @@ async def get_signals() -> dict:
             "type": cfg.get("type", "Boolean"),
             "writable": cfg.get("writable", False),
             "value": await _bus.read_value(cfg["id"]),
+            "revision": card.get("revision", 0),
+            "source": card.get("source"),
+            "changed_at": card.get("changed_at"),
             "direction": cfg.get("direction"),
             "channel": cfg.get("channel"),
             "module": cfg.get("module"),
@@ -186,69 +190,98 @@ async def get_signals() -> dict:
 class WriteSignalRequest(BaseModel):
     id: str
     value: Any = None
+    # ТЗ #5 §6: идемпотентность (повтор с тем же op_id не выполняется дважды)
+    # и оптимистичная блокировка (ревизия на момент чтения клиентом).
+    op_id: Optional[str] = None
+    expected_revision: Optional[int] = None
 
 
 class WriteBatchRequest(BaseModel):
     values: dict[str, Any] = {}
+    op_id: Optional[str] = None
 
 
-def _coerce_value(cfg: dict, value: Any) -> Any:
-    """Coerce an API value to the signal's OPC UA type.
+_STATUS_TO_HTTP = {
+    "unknown_signal": 404,
+    "not_writable": 403,
+    "invalid_value": 400,
+    "revision_conflict": 409,
+    "write_failed": 502,
+}
 
-    Правила одни на всё приложение — signal_types (ТЗ #5 §11), контракт
-    ``api``: число к Boolean не приводится, целые — без усечения и в границах
-    типа, Double дробный не отбрасывается, ошибка — диагностика, а не False/0.
-    """
-    try:
-        return signal_types.coerce(cfg.get("type"), value, contract="api")
-    except signal_types.SignalValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+def _reject_by_code(res: dict[str, Any], signal_id: str) -> HTTPException:
+    """Ошибка проверки/записи одной команды → HTTP-статус."""
+    code = res.get("code")
+    if code == "unknown_signal":
+        return HTTPException(status_code=404, detail=f"Сигнал {signal_id} не найден")
+    if code == "not_writable":
+        return HTTPException(status_code=403, detail=f"Сигнал {signal_id} только для чтения")
+    if code == "revision_conflict":
+        return HTTPException(status_code=409, detail=res.get("error", "конфликт ревизии"))
+    if code == "write_failed":
+        return HTTPException(status_code=502, detail="Ошибка записи сигнала")
+    return HTTPException(status_code=400, detail=res.get("error", "Некорректное значение"))
 
 
 @app.post("/api/signals/write")
 async def write_signal(req: WriteSignalRequest) -> dict:
     ensure_manual_writes_allowed()
-    cfg = _cache.get_config(req.id)
-    if cfg is None:
-        raise HTTPException(status_code=404, detail=f"Сигнал {req.id} не найден")
-    if not cfg.get("writable", False):
-        raise HTTPException(status_code=403, detail=f"Сигнал {req.id} только для чтения")
-
-    value = _coerce_value(cfg, req.value)
-
-    ok = await _bus.write_value(req.id, value)
-    if not ok:
-        raise HTTPException(status_code=500, detail="Ошибка записи сигнала")
-    _ledger.note(datetime.now(timezone.utc), req.id, value)
-    return {"status": "ok", "id": req.id, "value": value}
+    expected = {req.id: req.expected_revision} if req.expected_revision is not None else None
+    result = await _bus.apply_changes(
+        {req.id: req.value},
+        source="manual",
+        op_id=req.op_id,
+        expected_revisions=expected,
+        require_writable=True,
+        contract="api",
+    )
+    if result["status"] == "conflict":
+        raise HTTPException(status_code=409, detail=result["error"])
+    res = result["results"].get(req.id, {})
+    if res.get("status") in ("rejected", "not_applied", "failed"):
+        raise _reject_by_code(res, req.id)
+    body = {
+        "status": "ok",
+        "id": req.id,
+        "value": res.get("value"),
+        "revision": res.get("revision"),
+        "op_id": result["op_id"],
+        "source": "manual",
+    }
+    if result.get("replayed"):
+        body["replayed"] = True
+    return body
 
 
 @app.post("/api/signals/write_batch")
 async def write_batch(req: WriteBatchRequest) -> dict:
     ensure_manual_writes_allowed()
-    errors: list[str] = []
-    applied: list[str] = []
-    for signal_id, value in req.values.items():
-        cfg = _cache.get_config(signal_id)
-        if cfg is None:
-            errors.append(f"Сигнал {signal_id} не найден")
-            continue
-        if not cfg.get("writable", False):
-            errors.append(f"Сигнал {signal_id} только для чтения")
-            continue
-        try:
-            coerced = _coerce_value(cfg, value)
-        except HTTPException as e:
-            errors.append(f"Сигнал {signal_id}: {e.detail}")
-            continue
-        ok = await _bus.write_value(signal_id, coerced)
-        if ok:
-            applied.append(signal_id)
-            _ledger.note(datetime.now(timezone.utc), signal_id, coerced)
-        else:
-            errors.append(f"Ошибка записи сигнала {signal_id}")
-
-    return {"status": "ok", "applied": applied, "errors": errors}
+    # §7: пакет проверяется целиком до записи; ошибка проверки отклоняет
+    # пакет, значения не меняются. Ответ честный: применённые, ошибки,
+    # результат по каждому сигналу.
+    result = await _bus.apply_changes(
+        req.values,
+        source="manual_batch",
+        op_id=req.op_id,
+        require_writable=True,
+        contract="api",
+    )
+    if result["status"] == "conflict":
+        raise HTTPException(status_code=409, detail=result["error"])
+    now = datetime.now(timezone.utc)
+    for signal_id in result["applied"]:
+        _ledger.note(now, signal_id, result["results"][signal_id]["value"])
+    body = {
+        "status": result["status"],
+        "applied": result["applied"],
+        "errors": result["errors"],
+        "results": result["results"],
+        "op_id": result["op_id"],
+    }
+    if result.get("replayed"):
+        body["replayed"] = True
+    return body
 
 
 class HeartbeatRequest(BaseModel):

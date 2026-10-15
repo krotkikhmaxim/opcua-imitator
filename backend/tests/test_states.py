@@ -172,7 +172,8 @@ def test_write_batch(client):
     r = client.post("/api/signals/write_batch", json={"values": {a: True, b: 1200}})
     assert r.status_code == 200
     body = r.json()
-    assert body["status"] == "ok"
+    # Статусы механизма применения (ТЗ #5 §6): applied/partial/rejected/failed.
+    assert body["status"] == "applied"
     assert set(body["applied"]) == {a, b}
     assert body["errors"] == []
 
@@ -182,11 +183,21 @@ def test_write_batch(client):
 
 
 def test_write_batch_partial_errors(client):
+    # §7: ошибка проверки отклоняет пакет целиком — хорошее значение тоже
+    # не применяется (раньше применялось частично).
+    good = "ch1-10a3-sq1"
+    before = client.get("/api/signals").json()["signals"][good]["value"]
     r = client.post(
         "/api/signals/write_batch",
-        json={"values": {"unknown_sig": 1, "profibus-motor-speed": "abc"}},
+        json={"values": {good: True, "unknown_sig": 1, "profibus-motor-speed": "abc"}},
     )
     assert r.status_code == 200
     body = r.json()
+    assert body["status"] == "rejected"
     assert body["applied"] == []
-    assert len(body["errors"]) == 2
+    assert len(body["errors"]) == 2  # реальные проблемы пакета
+    assert body["results"][good]["code"] == "package_rejected"
+
+    # Значения не изменились.
+    after = client.get("/api/signals").json()["signals"][good]["value"]
+    assert after == before

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
+os.environ["OPC_UA_MODE"] = "imitator"  # до импорта app.main (конвенция сьюта)
+
 import pytest
 
 from app.config import load_signal_config
@@ -161,13 +165,14 @@ class TestLoadSignalConfig:
             load_signal_config(str(path))
 
 
-def test_main_coerce_delegates_and_translates_error():
-    from fastapi import HTTPException
+def test_api_write_rejects_fraction_for_int16():
+    # Приведение типов в API живёт в механизме применения (ТЗ #5 шаг 4);
+    # проверка здесь — сквозная: усечение в эндпоинте не вернулось.
+    from fastapi.testclient import TestClient
 
-    from app.main import _coerce_value
+    from app.main import app
 
-    assert _coerce_value({"type": "Double"}, 0.5) == 0.5
-    with pytest.raises(HTTPException) as exc:
-        _coerce_value({"type": "Int16"}, 1.5)
-    assert exc.value.status_code == 400
-    assert "усечения" in exc.value.detail
+    client = TestClient(app)  # без lifespan — тот поднимает сервер на 4840
+    r = client.post("/api/signals/write", json={"id": "profibus-motor-speed", "value": 1.5})
+    assert r.status_code == 400
+    assert "усечения" in r.json()["detail"]
