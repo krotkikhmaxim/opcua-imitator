@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .services.signal_types import default_for, validate_configs
+
 
 class Settings:
     SAVED_STATES_DIR: str = os.getenv("SAVED_STATES_DIR", "saved_states")
@@ -56,15 +58,6 @@ class Settings:
 
 settings = Settings()
 
-# OPC UA type names from the input-bindings file. The station's telemetry maps
-# these same names (Boolean/Int16/UInt16) to canonical types, so the imitator
-# keeps the OPC UA spelling verbatim instead of the legacy bool/int/float.
-DEFAULT_BY_TYPE = {
-    "Boolean": False,
-    "Int16": 0,
-    "UInt16": 0,
-}
-
 
 def _default_signal_configs() -> List[Dict]:
     return [
@@ -101,13 +94,14 @@ def _parse_input_bindings(payload: Dict) -> List[Dict]:
         if not node_id:
             node_id = item.get("project_tag", item.get("id", ""))
         signal_type = item.get("type", "Boolean")
+        # Неизвестный тип — ошибка конфигурации здесь, а не молчаливый False.
         configs.append({
             "id": item.get("id", node_id),
             "name": item.get("name", item.get("id", node_id)),
             "type": signal_type,
             "writable": True,
             "opcua_writable": bool(item.get("writable", False)),
-            "default": DEFAULT_BY_TYPE.get(signal_type, False),
+            "default": default_for(signal_type),
             "node_id": node_id,
             "address": node_id,
             "project_tag": item.get("project_tag", node_id),
@@ -130,25 +124,29 @@ def load_signal_config(path: Optional[str] = None) -> List[Dict]:
       operator-facing tag list under ``docs/``;
     - a plain JSON list — the legacy ``configs/signals.json`` shape;
     - anything else or a missing/unreadable file — the built-in defaults.
+
+    Каждый результат проходит ``validate_configs`` (ТЗ #5 §5): дубли id/NodeId,
+    неизвестный тип, негодное начальное значение — SignalConfigError с полным
+    списком проблем. Невалидная конфигурация не стартует вместо оператора.
     """
     import json
 
     path = path or settings.SIGNAL_CONFIG_PATH
     default = _default_signal_configs()
-    if not os.path.exists(path):
-        return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-    except Exception:
-        return default
-    if isinstance(loaded, dict):
-        if loaded.get("schema") == "telemetry.opcua.input-bindings.v1" or "bindings" in loaded:
-            return _parse_input_bindings(loaded)
-        items = loaded.get("items")
-        if isinstance(items, list):
-            return items
-        return default
-    if isinstance(loaded, list):
-        return loaded
-    return default
+    configs: List[Dict] = default
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+        except Exception:
+            loaded = None
+        if isinstance(loaded, dict):
+            if loaded.get("schema") == "telemetry.opcua.input-bindings.v1" or "bindings" in loaded:
+                configs = _parse_input_bindings(loaded)
+            else:
+                items = loaded.get("items")
+                configs = items if isinstance(items, list) else default
+        elif isinstance(loaded, list):
+            configs = loaded
+    validate_configs(configs, source=os.path.basename(path))
+    return configs

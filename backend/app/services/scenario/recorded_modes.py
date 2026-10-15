@@ -19,17 +19,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from ..signal_types import SignalValueError, coerce as coerce_signal
 from .hoist import CauseChange
 from .timeline import Change
 
 #: Каталог данных по умолчанию — рядом с этим модулем.
 DATA_DIR = Path(__file__).resolve().parent / "recordings"
-
-_TYPES = {
-    "Boolean": True,
-    "Int16": False,
-    "UInt16": False,
-}
 
 
 def _parse_line(line: str) -> Tuple[int, str, Any]:
@@ -44,12 +39,18 @@ def _parse_line(line: str) -> Tuple[int, str, Any]:
 
 
 def _coerce_to_config(signal_id: str, value: Any, config_type: Optional[str]) -> Any:
-    """Привести значение к типу конфигурации (Boolean vs Int16/UInt16)."""
-    if config_type == "Boolean":
-        return bool(value)
-    if not isinstance(value, bool):
-        return value
-    return 1 if value else 0
+    """Привести значение режима к типу конфигурации (единая таблица, ТЗ #5 §11).
+
+    Битые данные режима — ошибка загрузки файла, а не молчаливо неверное
+    значение: режимы — курируемые записи, их правда не должна искажаться.
+    """
+    if config_type is None:
+        # Сигнал вне текущей конфигурации — строка отфильтруется выше по потоку.
+        return 1 if value is True else 0 if value is False else value
+    try:
+        return coerce_signal(config_type, value, contract="file")
+    except SignalValueError as exc:
+        raise ValueError(f"режим, сигнал {signal_id}: {exc}") from None
 
 
 @dataclass(frozen=True)

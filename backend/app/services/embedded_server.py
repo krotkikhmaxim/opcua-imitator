@@ -13,21 +13,37 @@ from typing import Any, Dict, List, Optional
 
 from asyncua import Server, ua
 
+from .signal_types import SignalConfigError, resolve_type
+
 logger = logging.getLogger("opcua-imitator.server")
 
 NAMESPACE_URI = "urn:opcua-imitator"
 DEFAULT_ENDPOINT = "opc.tcp://0.0.0.0:4840"
 
+# OPC UA-вариант по написанию типа из конфигурации. Таблица одна — в
+# signal_types (ТЗ #5 §11); здесь только отображение на VariantType.
+# Неизвестный тип — SignalConfigError при старте сервера: до шага 3 он
+# молча публиковался строкой.
 VARIANT_TYPES = {
-    # OPC UA spellings from the input-bindings file (the station maps these).
     "Boolean": ua.VariantType.Boolean,
     "Int16": ua.VariantType.Int16,
     "UInt16": ua.VariantType.UInt16,
-    # Legacy spellings kept for old configs and the default fixture.
-    "bool": ua.VariantType.Boolean,
-    "int": ua.VariantType.Int32,
+    "Int32": ua.VariantType.Int32,  # наследие: тип "int" старых конфигов
+    "Double": ua.VariantType.Double,  # §11: аналоговые без усечения
+    "bool": ua.VariantType.Boolean,  # наследие фикстурных конфигов
     "float": ua.VariantType.Double,
 }
+
+
+def variant_type_for(type_name: str) -> ua.VariantType:
+    """VariantType сигнала; неизвестное написание — ошибка конфигурации."""
+    canonical = resolve_type(type_name).name
+    try:
+        return VARIANT_TYPES[canonical]
+    except KeyError:  # pragma: no cover — таблица покрывает все канонические
+        raise SignalConfigError(
+            f"тип {type_name!r} ({canonical}) не имеет OPC UA-варианта"
+        ) from None
 
 
 class EmbeddedOpcUaServer:
@@ -84,7 +100,7 @@ class EmbeddedOpcUaServer:
                         ua.QualifiedName(part, idx),
                     )
                 parent = folders[key]
-            vtype = VARIANT_TYPES.get(cfg.get("type", ""), ua.VariantType.String)
+            vtype = variant_type_for(cfg.get("type", ""))
             node = await parent.add_variable(
                 ua.NodeId(node_id, idx),
                 ua.QualifiedName(parts[-1], idx),

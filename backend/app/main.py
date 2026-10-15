@@ -34,6 +34,7 @@ from app.services.opc_bus import OPCMode, OPCSignalBus
 from app.services.playback.service import PlaybackService
 from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
+from app.services import signal_types
 from app.services.signal_cache import SignalCache
 from app.services.station_proxy import StationProxy
 from app.services.storage import StateStorage
@@ -194,35 +195,14 @@ class WriteBatchRequest(BaseModel):
 def _coerce_value(cfg: dict, value: Any) -> Any:
     """Coerce an API value to the signal's OPC UA type.
 
-    The imitator accepts a boolean as a JSON bool or a str/0/1; integers must
-    fit the declared width (Int16/UInt16) so a bad simulation value fails at
-    the edge instead of wrapping silently.
+    Правила одни на всё приложение — signal_types (ТЗ #5 §11), контракт
+    ``api``: число к Boolean не приводится, целые — без усечения и в границах
+    типа, Double дробный не отбрасывается, ошибка — диагностика, а не False/0.
     """
-    t = cfg.get("type")
-    if t == "Boolean":
-        if isinstance(value, str):
-            return value.strip().lower() in ("1", "true", "on", "да", "вкл")
-        return bool(value)
-    if t in ("Int16", "UInt16"):
-        if value is None:
-            raise HTTPException(status_code=400, detail="Некорректное числовое значение")
-        try:
-            number = int(value)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Некорректное числовое значение")
-        if t == "UInt16" and not 0 <= number <= 65535:
-            raise HTTPException(status_code=400, detail="Значение вне диапазона UInt16 (0..65535)")
-        if t == "Int16" and not -32768 <= number <= 32767:
-            raise HTTPException(status_code=400, detail="Значение вне диапазона Int16 (-32768..32767)")
-        return number
-    if t == "bool":
-        return bool(value)
-    if t in ("int", "float") and value is not None:
-        try:
-            return int(value) if t == "int" else float(value)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Некорректное числовое значение")
-    return value
+    try:
+        return signal_types.coerce(cfg.get("type"), value, contract="api")
+    except signal_types.SignalValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @app.post("/api/signals/write")

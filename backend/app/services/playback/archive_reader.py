@@ -23,6 +23,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
+from .. import signal_types
+
+#: Написание типа колонки станции → имя в единой таблице.
+_COLUMN_TYPES = {
+    "boolean": "Boolean",
+    "integer": "Int32",
+    "int": "Int32",
+    "long": "Int32",
+    "float": "Double",
+    "double": "Double",
+}
+
 #: Качество архива → корзина плейбэка; неизвестное не играется как good.
 QUALITY_BUCKETS = {
     "good": "good",
@@ -107,18 +119,19 @@ def list_series(path: str) -> Tuple[List[ArchiveSeriesInfo], Dict[str, Any]]:
 
 
 def _coerce_value(value_type: str, value: Any) -> Any:
-    """Значение колонки к типу серии; None для пустой ячейки."""
+    """Значение колонки к типу серии; None для пустой и неприводимой ячейки.
+
+    Написания типов колонок станции (boolean/integer/long/double) маппятся на
+    единую таблицу signal_types (ТЗ #5 §11) — приведение одно на приложение.
+    """
     if value is None:
         return None
-    try:
-        if value_type == "boolean":
-            return int(value) != 0
-        if value_type in ("integer", "int", "long"):
-            return int(value)
-        if value_type in ("float", "double"):
-            return float(value)
+    mapped = _COLUMN_TYPES.get(value_type.lower())
+    if mapped is None:
         return str(value)
-    except (TypeError, ValueError):
+    try:
+        return signal_types.coerce(mapped, value, contract="file")
+    except (signal_types.SignalValueError, signal_types.SignalConfigError):
         return None
 
 

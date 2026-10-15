@@ -25,6 +25,8 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 import openpyxl
 
+from .. import signal_types
+
 _TS_FORMAT = "%d.%m.%Y %H:%M:%S.%f"
 
 
@@ -137,7 +139,12 @@ def _path_key(path: str) -> Optional[Tuple[str, str]]:
 
 
 def _coerce(signal_type: str, value: Any) -> Any:
-    """Значение ячейки к типу сигнала; пропуск (None) для пустых и nan."""
+    """Значение ячейки к типу сигнала; пропуск (None) для пустых и nan.
+
+    Типовая таблица одна — signal_types (ТЗ #5 §11), контракт ``file``:
+    Double больше не усекается до целого, дробное вне целого типа — пропуск
+    ячейки (сигнал остаётся), а не усечённое неверное значение.
+    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -145,10 +152,8 @@ def _coerce(signal_type: str, value: Any) -> Any:
         if text == "" or text.lower() == "nan":
             return None
     try:
-        if signal_type == "Boolean":
-            return int(float(value)) != 0
-        return int(float(value))
-    except (TypeError, ValueError):
+        return signal_types.coerce(signal_type, value, contract="file")
+    except (signal_types.SignalValueError, signal_types.SignalConfigError):
         return None
 
 
