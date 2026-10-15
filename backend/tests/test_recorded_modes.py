@@ -85,12 +85,16 @@ T0 = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
 def _engine(tmp_path, writes, configs=CONFIG, simulated=True):
     clock = _VirtualTime()
 
-    async def writer(signal_id, value, when):
-        writes.append((signal_id, value, when))
-        return True
+    # Писец у каждого прогона свой (фабрика по run_id); журнал общий.
+    def writer_factory(run_id):
+        async def writer(signal_id, value, when):
+            writes.append((signal_id, value, when))
+            return True
+
+        return writer
 
     return ScenarioEngine(
-        writer,
+        writer_factory,
         configs,
         simulated=simulated,
         journal_path=tmp_path / "journal.jsonl",
@@ -106,8 +110,8 @@ def test_engine_replays_a_mode_with_scenario_timestamps(tmp_path):
     mode = _mode("drive_fault")
 
     async def run():
-        await engine.start(mode="drive_fault", seed=1)
-        await engine._task
+        status = await engine.start(mode="drive_fault", seed=1)
+        await engine._runs[status["run_id"]].task
 
     asyncio.run(run())
 
@@ -135,8 +139,8 @@ def test_engine_last_frame_is_written(tmp_path):
     mode = _mode("drive_fault")
 
     async def run():
-        await engine.start(mode="drive_fault", seed=1)
-        await engine._task
+        status = await engine.start(mode="drive_fault", seed=1)
+        await engine._runs[status["run_id"]].task
 
     asyncio.run(run())
     last_snapshot = {}

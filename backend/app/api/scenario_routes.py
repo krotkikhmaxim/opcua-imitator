@@ -1,6 +1,6 @@
 """HTTP API сценариев: список, запуск, остановка, статус и журнал правды."""
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, AbstractSet, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -16,6 +16,23 @@ class StartRequest(BaseModel):
     mode: Optional[str] = None
     seed: Optional[int] = None
     once: bool = False
+
+
+class RunRequest(BaseModel):
+    """Указание прогона; без него — единственный активный (несколько — 409)."""
+
+    run_id: Optional[str] = None
+
+
+_ERROR_STATUS = {
+    "unknown_kind": 400,
+    "unknown_mode": 400,
+    "unknown_run": 404,
+    "not_running": 409,
+    "ambiguous_run": 409,
+    "signals_busy": 409,
+    "real_mode": 409,
+}
 
 
 class _Holder:
@@ -54,11 +71,17 @@ def set_playback_stop(stop: Optional[Callable[[], None]]) -> None:
     _stop_playback = stop
 
 
-def ensure_manual_writes_allowed() -> None:
-    """Пока активен драйвер (сценарий, плейбэк), ручная запись испортила бы его."""
+def ensure_manual_writes_allowed(exclude: Optional[AbstractSet[str]] = None) -> None:
+    """Грубая блокировка ручной записи активными драйверами.
+
+    Сценарий исключён (ТЗ #5 §9.2): за него отвечает владение по-сигнально —
+    механизм применения отклонит запись в занятый сигнал (код ``owned``),
+    а сигналы вне набора прогона ручная правка менять может. Плейбэк остаётся
+    грубым запретом: его окно данных не выражается набором сигналов.
+    """
     if _registry is not None:
         try:
-            _registry.ensure_manual_writes_allowed()
+            _registry.ensure_manual_writes_allowed(exclude=exclude)
         except DriverConflict as exc:
             raise HTTPException(status_code=409, detail=exc.message)
         return
@@ -116,16 +139,35 @@ async def start(req: StartRequest) -> Dict[str, Any]:
             kinds=req.kinds, mode=req.mode, seed=req.seed, once=req.once
         )
     except ScenarioError as exc:
-        code = 400 if exc.code in ("unknown_kind", "unknown_mode") else 409
-        raise HTTPException(status_code=code, detail=exc.message)
+        raise HTTPException(status_code=_ERROR_STATUS.get(exc.code, 409), detail=exc.message)
     await _after_activity_change()
     return result
 
 
 @router.post("/stop")
-async def stop() -> Dict[str, Any]:
-    result = await _engine().stop()
+async def stop(req: Optional[RunRequest] = None) -> Dict[str, Any]:
+    result = await _engine().stop(req.run_id if req is not None else None)
     await _after_activity_change()
+    return result
+
+
+@router.post("/pause")
+async def pause(req: Optional[RunRequest] = None) -> Dict[str, Any]:
+    """Пауза прогона: смены замирают, владение сохраняется (ТЗ #5 §9.1)."""
+    try:
+        result = await _engine().pause(req.run_id if req is not None else None)
+    except ScenarioError as exc:
+        raise HTTPException(status_code=_ERROR_STATUS.get(exc.code, 409), detail=exc.message)
+    return result
+
+
+@router.post("/resume")
+async def resume(req: Optional[RunRequest] = None) -> Dict[str, Any]:
+    """Продолжить паузу; интервалы сценария остаются точными (ТЗ #5 §9.1)."""
+    try:
+        result = await _engine().resume(req.run_id if req is not None else None)
+    except ScenarioError as exc:
+        raise HTTPException(status_code=_ERROR_STATUS.get(exc.code, 409), detail=exc.message)
     return result
 
 

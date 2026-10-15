@@ -21,7 +21,6 @@ os.environ["OPC_UA_MODE"] = "imitator"
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.scenario_routes import set_scenario_engine
 from app.config import load_signal_config
 from app.main import app
 from app.services.embedded_server import EmbeddedOpcUaServer
@@ -180,12 +179,16 @@ T0 = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
 def _engine(tmp_path, writes, configs=CONFIG, simulated=True):
     clock = _VirtualTime()
 
-    async def writer(signal_id, value, when):
-        writes.append((signal_id, value, when))
-        return True
+    # Писец у каждого прогона свой (фабрика по run_id); журнал общий.
+    def writer_factory(run_id):
+        async def writer(signal_id, value, when):
+            writes.append((signal_id, value, when))
+            return True
+
+        return writer
 
     engine = ScenarioEngine(
-        writer,
+        writer_factory,
         configs,
         simulated=simulated,
         journal_path=tmp_path / "journal.jsonl",
@@ -201,8 +204,8 @@ def test_engine_plays_baseline_then_the_cycle_with_scenario_timestamps(tmp_path)
     engine = _engine(tmp_path, writes)
 
     async def run():
-        await engine.start(kinds=["estop_console"], seed=3, once=True)
-        await engine._task
+        status = await engine.start(kinds=["estop_console"], seed=3, once=True)
+        await engine._runs[status["run_id"]].task
 
     asyncio.run(run())
     baseline = writes[: len(BASELINE)]
@@ -256,7 +259,7 @@ def test_engine_stop_cancels_a_running_loop():
             return True
 
         engine = ScenarioEngine(
-            writer,
+            lambda run_id: writer,
             CONFIG,
             simulated=True,
             sleep=blocking_sleep,
@@ -283,11 +286,195 @@ def test_unknown_kind_is_rejected(tmp_path):
     asyncio.run(run())
 
 
+# -- владение и несколько прогонов (ТЗ #5 §9.1, §9.2) ------------------------
+
+
+class _OneShotGate:
+    """Виртуальное время с однократным шлюзом: один sleep застревает, пока
+    шлюз не открыт, — окно для паузы, конфликта и параллельного прогона."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.armed = False
+        self.release = asyncio.Event()
+
+    def monotonic(self):
+        return self.now
+
+    async def sleep(self, delay):
+        self.now += delay
+        if self.armed:
+            self.armed = False
+            await self.release.wait()
+
+
+def _gated_engine(writes, gate):
+    def writer_factory(run_id):
+        async def writer(signal_id, value, when):
+            writes.append((run_id, signal_id, value, when))
+            return True
+
+        return writer
+
+    from app.services.ownership import OwnershipRegistry
+
+    return ScenarioEngine(
+        writer_factory,
+        CONFIG,
+        simulated=True,
+        ownership=OwnershipRegistry(),
+        sleep=gate.sleep,
+        clock=lambda: T0,
+        monotonic=gate.monotonic,
+    )
+
+
+def test_intersecting_start_is_rejected_and_the_first_run_survives():
+    """Пересекающийся запуск отклоняется ЦЕЛИКОМ с перечнем, первый жив."""
+    writes = []
+
+    async def run():
+        gate = _OneShotGate()
+        engine = _gated_engine(writes, gate)
+        gate.armed = True
+        first = await engine.start(kinds=["normal_stop"], seed=1, once=True)
+        await asyncio.sleep(0)
+        assert engine.running
+
+        with pytest.raises(ScenarioError) as info:
+            await engine.start(kinds=["estop_console"], seed=2)
+        assert info.value.code == "signals_busy"
+        assert MOTOR_SPEED in info.value.message  # конкретный сигнал в перечне
+        assert "normal_stop" in info.value.message  # и титул владельца
+        assert set(engine._runs) == {first["run_id"]}  # второй не создан
+        assert engine.running  # первый не тронут
+
+        gate.release.set()
+        await engine._runs[first["run_id"]].task
+        assert engine.status()["phase"] == "finished"
+
+    asyncio.run(run())
+
+
+def test_two_disjoint_declared_sets_run_concurrently(tmp_path, monkeypatch):
+    """Непересекающиеся наборы играют одновременно; владение — объединение."""
+    from app.services.ownership import OwnershipRegistry
+    from app.services.scenario import engine as engine_module
+
+    writes = []
+
+    async def run():
+        gate = _OneShotGate()
+        engine = _gated_engine(writes, gate)
+        first_set = {MOTOR_SPEED, ESTOP_CONSOLE}
+        monkeypatch.setattr(engine_module, "BASELINE", {MOTOR_SPEED: 0, ESTOP_CONSOLE: True})
+        gate.armed = True
+        first = await engine.start(kinds=["normal_stop"], seed=1, once=True)
+        await asyncio.sleep(0)
+
+        # пересечение по MOTOR_SPEED — конфликт; {TP_RELAY} — не пересекается
+        monkeypatch.setattr(engine_module, "BASELINE", {MOTOR_SPEED: 0})
+        with pytest.raises(ScenarioError):
+            await engine.start(kinds=["normal_stop"], seed=2, once=True)
+        monkeypatch.setattr(engine_module, "BASELINE", {TP_RELAY: False})
+        second = await engine.start(kinds=["normal_stop"], seed=3, once=True)
+
+        assert first["run_id"] != second["run_id"]
+        cards = {card["run_id"]: card for card in second["runs"]}
+        assert set(cards) == {first["run_id"], second["run_id"]}
+        assert cards[first["run_id"]]["owned_signals"] == sorted(first_set)
+        assert cards[second["run_id"]]["owned_signals"] == [TP_RELAY]
+        held = engine._ownership.held_signals()
+        assert held[MOTOR_SPEED].id == f"scenario:{first['run_id']}"
+        assert held[TP_RELAY].id == f"scenario:{second['run_id']}"
+
+        gate.release.set()
+        await engine._runs[first["run_id"]].task
+        await engine._runs[second["run_id"]].task
+        assert engine._ownership.held_signals() == {}
+        assert engine.status()["running"] is False
+
+    asyncio.run(run())
+
+
+def test_pause_keeps_ownership_and_resume_keeps_intervals_exact():
+    """Пауза (§9.1): смены стоят, владение при прогоне; продолжение сдвигает
+    базу времени на длительность паузы — интервалы сценария не плывут."""
+    writes = []
+
+    async def run():
+        gate = _OneShotGate()
+        engine = _gated_engine(writes, gate)
+        gate.armed = True
+        status = await engine.start(kinds=["normal_stop"], seed=7, once=True)
+        run_id = status["run_id"]
+        await asyncio.sleep(0)
+        run = engine._runs[run_id]
+        t0_mono_before = run.t0_mono
+
+        await engine.pause(run_id)
+        assert engine.status()["phase"] == "paused"
+        # пауза сохраняет владение — ручная правка не меняет условия продолжения
+        held = engine._ownership.owner_of(ESTOP_CONSOLE)
+        assert held is not None and held.id == f"scenario:{run_id}"
+
+        gate.now += 5.0  # пять секунд паузы в виртуальном времени
+        gate.armed = False
+        await engine.resume(run_id)
+        assert run.t0_mono == pytest.approx(t0_mono_before + 5.0)
+        assert abs(run.t0_wall - (T0 + timedelta(seconds=5))) < timedelta(milliseconds=1)
+        assert engine.status()["phase"] in ("normal", "episode", "stopped")
+
+        gate.release.set()
+        await run.task
+        assert engine.status()["phase"] == "finished"
+        stamps = [when for _, _, _, when in writes]
+        assert stamps == sorted(stamps)  # назад во времени не пишем
+        assert engine._ownership.owner_of(ESTOP_CONSOLE) is None
+
+    asyncio.run(run())
+
+
+def test_error_keeps_ownership_until_explicit_stop(tmp_path):
+    """Ошибка ставит прогон с владением; набор освобождает только решение
+    оператора — остановка (§9.2)."""
+    calls = {"n": 0}
+
+    async def writer(signal_id, value, when):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("шина отказала")
+        return True
+
+    async def run():
+        from app.services.ownership import OwnershipRegistry
+
+        engine = ScenarioEngine(
+            lambda run_id: writer,
+            CONFIG,
+            simulated=True,
+            ownership=OwnershipRegistry(),
+            clock=lambda: T0,
+            monotonic=lambda: 0.0,
+        )
+        status = await engine.start(kinds=["normal_stop"], seed=1, once=True)
+        run_id = status["run_id"]
+        await engine._runs[run_id].task
+        assert engine.status()["phase"] == "error"
+        assert engine.status()["error"] == "RuntimeError"
+
+        held = engine._ownership.owner_of(MOTOR_SPEED)
+        assert held is not None and held.id == f"scenario:{run_id}"
+        assert held.kind == "scenario"
+
+        result = await engine.stop(run_id)
+        assert result["phase"] == "stopped"
+        assert engine._ownership.owner_of(MOTOR_SPEED) is None
+
+    asyncio.run(run())
+
+
 # -- HTTP API ----------------------------------------------------------------
-
-
-class _RunningEngine:
-    running = True
 
 
 def test_api_lists_scenarios_and_assumptions():
@@ -304,18 +491,41 @@ def test_api_rejects_an_unknown_kind():
     assert response.status_code == 400
 
 
-def test_manual_writes_are_blocked_while_a_scenario_runs():
-    from app.api import scenario_routes
+def test_manual_writes_to_owned_signals_are_rejected_others_pass():
+    """ТЗ #5 §9.2: вместо грубой блокировки — владение по-сигнально.
+
+    Занятый сценарием сигнал: ручная запись 409 с именем владельца, пакет с
+    ним отклоняется целиком (код owned). Свободные сигналы ручная запись
+    меняет. Восстановление состояния больше не запирается целиком — занятые
+    сигналы отклонит механизм, остальное применится (здесь — файл не найден,
+    404 вместо прежнего 409).
+    """
+    from app.main import _cache, _ownership
+    from app.services.ownership import Owner
 
     client = TestClient(app)
-    original = scenario_routes.get_scenario_engine()
-    set_scenario_engine(_RunningEngine())
+    writable = [cfg["id"] for cfg in _cache.config if cfg.get("writable")]
+    assert len(writable) >= 2
+    held, free = writable[0], writable[1]
+    owner = Owner(id="scenario:testrun01", kind="scenario", title="Сценарий-тест")
+    assert _ownership.acquire(owner, [held]) == []
     try:
-        assert client.post("/api/signals/write", json={"id": ESTOP_CONSOLE, "value": False}).status_code == 409
-        assert client.post("/api/signals/write_batch", json={"values": {ESTOP_CONSOLE: False}}).status_code == 409
-        assert client.post("/api/states/load", json={"filename": "x.json"}).status_code == 409
+        response = client.post("/api/signals/write", json={"id": held, "value": True})
+        assert response.status_code == 409
+        assert "Сценарий-тест" in response.json()["detail"]
+        assert client.post("/api/signals/write", json={"id": free, "value": True}).status_code == 200
+
+        body = client.post(
+            "/api/signals/write_batch", json={"values": {free: False, held: True}}
+        ).json()
+        assert body["status"] == "rejected"
+        assert body["results"][held]["code"] == "owned"
+        assert body["results"][free]["code"] == "package_rejected"
+
+        assert client.post("/api/states/load", json={"filename": "x.json"}).status_code == 404
     finally:
-        set_scenario_engine(original)
+        _ownership.release(owner.id)
+    assert client.post("/api/signals/write", json={"id": held, "value": True}).status_code == 200
 
 
 # -- встроенный сервер -------------------------------------------------------

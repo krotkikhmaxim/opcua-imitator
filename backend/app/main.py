@@ -31,6 +31,7 @@ from app.config import load_signal_config, settings
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
+from app.services.ownership import OwnershipRegistry
 from app.services.playback.service import PlaybackService
 from app.services.scenario import ScenarioEngine
 from app.services.scenario.hoist import BASELINE
@@ -67,17 +68,34 @@ _heartbeat: Optional[HeartbeatService] = None
 _registry = ValueDriverRegistry()
 _ledger = WriteLedger()
 _gate = HeartbeatGate(_registry, lambda: _heartbeat)
+# Владение сигналами (ТЗ #5 §9.2): сценарий объявляет набор до старта и
+# держит его исключительно; шина проверяет владение при каждой записи.
+_ownership = OwnershipRegistry()
+_bus.set_ownership(_ownership)
 
 set_services(_bus, _storage)
 app.include_router(router)
 # Сценарии пишут через ту же шину; в режиме real движок недоступен — запись
 # ушла бы во внешний сервер, то есть в настоящий ПЛК. Писатель обёрнут
 # журналом: движок не знает о нём, а сверка со станцией получает все записи.
+# Каждый прогон пишет со своим source/owner «scenario:<run_id>» (§9.3):
+# карточки показывают, чьё это изменение, а владение пропускает записи
+# только самого владельца.
+def _scenario_writer_factory(run_id: str) -> Any:
+    owner_id = f"scenario:{run_id}"
+
+    def writer(signal_id: str, value: Any, when: datetime) -> Any:
+        return _bus.write_value_at(signal_id, value, when, source=owner_id, owner=owner_id)
+
+    return _ledger.wrap(writer)
+
+
 set_scenario_engine(
     ScenarioEngine(
-        _ledger.wrap(_bus.write_value_at),
+        _scenario_writer_factory,
         _cache.config,
         simulated=_bus.simulated,
+        ownership=_ownership,
         journal_path=Path(settings.SCENARIO_JOURNAL_PATH),
     )
 )
@@ -163,6 +181,7 @@ async def get_signals() -> dict:
     for cfg in _cache.config:
         state = _cache.get_state(cfg["id"])
         card = state.card() if state is not None else {}
+        owner = _ownership.owner_of(cfg["id"])
         signals[cfg["id"]] = {
             "id": cfg["id"],
             "short_id": cfg["id"],
@@ -173,6 +192,9 @@ async def get_signals() -> dict:
             "revision": card.get("revision", 0),
             "source": card.get("source"),
             "changed_at": card.get("changed_at"),
+            # Владение (ТЗ #5 §9.2): кто держит сигнал сейчас, если держит.
+            "owner": owner.title if owner is not None else None,
+            "owner_id": owner.id if owner is not None else None,
             "direction": cfg.get("direction"),
             "channel": cfg.get("channel"),
             "module": cfg.get("module"),
@@ -206,6 +228,7 @@ _STATUS_TO_HTTP = {
     "not_writable": 403,
     "invalid_value": 400,
     "revision_conflict": 409,
+    "owned": 409,
     "write_failed": 502,
 }
 
@@ -217,6 +240,8 @@ def _reject_by_code(res: dict[str, Any], signal_id: str) -> HTTPException:
         return HTTPException(status_code=404, detail=f"Сигнал {signal_id} не найден")
     if code == "not_writable":
         return HTTPException(status_code=403, detail=f"Сигнал {signal_id} только для чтения")
+    if code == "owned":
+        return HTTPException(status_code=409, detail=res.get("error", "Сигнал под владением сценария"))
     if code == "revision_conflict":
         return HTTPException(status_code=409, detail=res.get("error", "конфликт ревизии"))
     if code == "write_failed":
@@ -226,7 +251,9 @@ def _reject_by_code(res: dict[str, Any], signal_id: str) -> HTTPException:
 
 @app.post("/api/signals/write")
 async def write_signal(req: WriteSignalRequest) -> dict:
-    ensure_manual_writes_allowed()
+    # Сценарий исключён из грубой блокировки: его сигналы защищает владение
+    # по-сигнально (код owned → 409), остальные ручная правка менять может.
+    ensure_manual_writes_allowed(exclude={"scenario"})
     expected = {req.id: req.expected_revision} if req.expected_revision is not None else None
     result = await _bus.apply_changes(
         {req.id: req.value},
@@ -256,7 +283,7 @@ async def write_signal(req: WriteSignalRequest) -> dict:
 
 @app.post("/api/signals/write_batch")
 async def write_batch(req: WriteBatchRequest) -> dict:
-    ensure_manual_writes_allowed()
+    ensure_manual_writes_allowed(exclude={"scenario"})
     # §7: пакет проверяется целиком до записи; ошибка проверки отклоняет
     # пакет, значения не меняются. Ответ честный: применённые, ошибки,
     # результат по каждому сигналу.

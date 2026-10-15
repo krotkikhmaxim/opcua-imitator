@@ -71,7 +71,10 @@ async def save_state(req: SaveRequest) -> Dict[str, Any]:
 
 @router.post("/load")
 async def load_state(req: LoadRequest) -> Dict[str, Any]:
-    ensure_manual_writes_allowed()
+    # Сценарий исключён из грубой блокировки (ТЗ #5 §9.2): его сигналы
+    # защитит владение — apply_changes отклонит их с кодом owned, остальное
+    # восстановится. Отчёт честный по каждому сигналу.
+    ensure_manual_writes_allowed(exclude={"scenario"})
     try:
         data = _holder.storage.read(req.filename)
     except StateFileError as e:
