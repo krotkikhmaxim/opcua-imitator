@@ -1,8 +1,11 @@
-"""WS-фид дельт значений: рассылка изменений, молчание без них, драйверы.
+"""WS-фид дельт: ревизии в дельтах, seq на каждом тике, карта владельцев.
 
-Фид — чистый сервис: читатель и вещание приходят колбэками, поэтому дельты
-проверяются на фейковой шине без транспорта. Жизненный цикл (старт/стоп
-вместе с приложением) — один тест на TestClient в режиме imitator.
+Фид — чистый сервис: читатель, ревизии, источники и вещание приходят
+колбэками, поэтому дельты проверяются на фейковой шине без транспорта.
+Контракт §12: сообщение каждый тик с монотонным seq (пропуск замечается
+клиентом), дельта несёт {v, r, s}, владельцы — только при смене версии.
+Жизненный цикл (старт/стоп вместе с приложением) и снимок при подключении
+WS — тесты на TestClient в режиме imitator.
 """
 
 import asyncio
@@ -36,7 +39,16 @@ class FakeGate:
         self.refreshes += 1
 
 
-def _feed(values, interval=0.5, registry=None, gate=None):
+class FakeOwnership:
+    def __init__(self, version=0, held=None):
+        self.version = version
+        self.held = dict(held or {})
+
+    def owner_of(self, signal_id):
+        return self.held.get(signal_id)
+
+
+def _feed(values, interval=0.5, registry=None, gate=None, ownership=None):
     bus = FakeBus(values)
     sent = []
     feed = ValuesFeed(
@@ -47,29 +59,37 @@ def _feed(values, interval=0.5, registry=None, gate=None):
         now=lambda: datetime(2026, 3, 23, 15, 0, 0, tzinfo=timezone.utc),
         registry=registry,
         gate=gate,
+        revision_of=lambda sid: {"a": 3, "b": 1}.get(sid, 0),
+        source_of=lambda sid: {"a": "manual"}.get(sid),
+        ownership=ownership,
     )
     return feed, bus, sent
 
 
-def test_first_tick_sends_every_present_value():
+def test_first_tick_sends_every_present_value_with_card():
     async def scenario():
         feed, bus, sent = _feed({"a": True, "b": 5})
         changes = await feed.tick()
-        assert changes == {"a": True, "b": 5}
+        assert changes == {
+            "a": {"v": True, "r": 3, "s": "manual"},
+            "b": {"v": 5, "r": 1, "s": None},
+        }
         assert sent[0]["type"] == "signals_update"
-        assert sent[0]["changes"] == {"a": True, "b": 5}
+        assert sent[0]["seq"] == 1
+        assert sent[0]["changes"] == changes
         assert sent[0]["at"].startswith("2026-03-23T15:00:00")
 
     asyncio.run(scenario())
 
 
-def test_unchanged_state_sends_nothing():
+def test_every_tick_carries_seq_even_without_changes():
     async def scenario():
-        feed, bus, sent = _feed({"a": True})
+        feed, _bus, sent = _feed({"a": True})
         await feed.tick()
         await feed.tick()
-        await feed.tick()
-        assert len(sent) == 1  # только бутстрап
+        # Пустой тик — тоже событие: клиент отличает «изменений нет» от обрыва.
+        assert [m["seq"] for m in sent] == [1, 2]
+        assert sent[1]["changes"] == {}
 
     asyncio.run(scenario())
 
@@ -80,8 +100,8 @@ def test_only_the_changed_signal_is_sent():
         await feed.tick()
         bus.values["b"] = 7
         changes = await feed.tick()
-        assert changes == {"b": 7}
-        assert sent[-1]["changes"] == {"b": 7}
+        assert changes == {"b": {"v": 7, "r": 1, "s": None}}
+        assert sent[-1]["changes"] == {"b": {"v": 7, "r": 1, "s": None}}
 
     asyncio.run(scenario())
 
@@ -90,10 +110,10 @@ def test_absent_values_are_skipped():
     async def scenario():
         feed, bus, sent = _feed({"a": True, "ghost": None})
         changes = await feed.tick()
-        assert changes == {"a": True}
+        assert changes == {"a": {"v": True, "r": 3, "s": "manual"}}
         bus.values["ghost"] = False  # появившийся сигнал уходит как дельта
         changes = await feed.tick()
-        assert changes == {"ghost": False}
+        assert changes == {"ghost": {"v": False, "r": 0, "s": None}}
 
     asyncio.run(scenario())
 
@@ -104,6 +124,34 @@ def test_zero_interval_disables_the_feed():
         assert feed.disabled is True
         feed.start()
         assert feed.running is False  # старт при выключенном фиде — тишина
+
+    asyncio.run(scenario())
+
+
+def test_owner_map_is_sent_only_when_version_grows():
+    async def scenario():
+        from types import SimpleNamespace
+
+        owner = SimpleNamespace(id="scenario:r1", title="Режим «Тест»")
+        own = FakeOwnership(version=0)
+        feed, _bus, sent = _feed({"a": True}, ownership=own)
+
+        await feed.tick()
+        # Первый тик только фиксирует состояние: рассылки карты нет.
+        assert "owners" not in sent[0]
+
+        own.version = 1
+        own.held["a"] = owner
+        await feed.tick()
+        assert sent[1]["owners"] == {"a": {"id": "scenario:r1", "title": "Режим «Тест»"}}
+
+        await feed.tick()
+        assert "owners" not in sent[2]  # версия не менялась — повтора нет
+
+        own.version = 2
+        own.held.clear()
+        await feed.tick()
+        assert sent[3]["owners"] == {"a": None}  # освобождение доходит как None
 
     asyncio.run(scenario())
 
@@ -128,12 +176,14 @@ def test_driver_change_is_broadcast_once_and_gate_refreshes_every_tick():
 
         registry.active_drivers = ["scenario"]
         await feed.tick()
-        assert [m["type"] for m in sent] == ["signals_update", "driver_changed"]
+        # signals_update уходит каждый тик; driver_changed — только на смену.
+        assert [m["type"] for m in sent].count("driver_changed") == 1
         assert sent[-1]["active"] == ["scenario"]
 
         await feed.tick()
         # драйвер не сменился — повторной рассылки нет, шлюз тикает дальше
-        assert [m["type"] for m in sent] == ["signals_update", "driver_changed"]
+        assert [m["type"] for m in sent].count("driver_changed") == 1
+        assert sent[-1]["type"] == "signals_update"
         assert gate.refreshes == 3
 
     asyncio.run(scenario())
@@ -147,3 +197,30 @@ def test_start_and_stop_follow_the_app_lifecycle():
     with TestClient(app):
         assert _values_feed.running is True
     assert _values_feed.running is False
+
+
+def test_ws_connect_receives_snapshot_then_contiguous_seq():
+    """§12: подключение начинается со снимка; первая дельта продолжает seq.
+
+    Тик между снимком и подпиской был бы пропущен — и замечен клиентом как
+    скачок seq. Здесь смежность и есть норма.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import _cache, _values_feed, app
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            snapshot = ws.receive_json()
+            assert snapshot["type"] == "signals_snapshot"
+            assert len(snapshot["signals"]) == len(_cache.config)
+            card = snapshot["signals"]["ch1-10a3-sq1"]
+            assert card["revision"] >= 0
+            assert "source" in card and "owner_id" in card
+
+            # Тик на цикле приложения: дельта доходит через реальный сокет
+            # (авто-тик фида, поднятого startup'ом, дал бы тот же seq).
+            client.portal.start_task_soon(_values_feed.tick)
+            delta = ws.receive_json()
+            assert delta["type"] == "signals_update"
+            assert delta["seq"] == snapshot["seq"] + 1

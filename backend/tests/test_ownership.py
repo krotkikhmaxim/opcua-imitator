@@ -56,6 +56,27 @@ def test_acquire_is_all_or_nothing_with_the_full_conflict_list():
     assert registry.owner_of("sig-b") == ALICE
 
 
+def test_version_grows_only_when_ownership_changes():
+    """Версия — сигнал для WS-фида: карта владельцев рассылается по её росту."""
+    registry = OwnershipRegistry()
+    assert registry.version == 0
+
+    assert registry.acquire(ALICE, ["sig-a"]) == []
+    version_after_acquire = registry.version
+    assert version_after_acquire == 1
+
+    # Отказ (конфликт) состояние не меняет — версия на месте.
+    registry.acquire(BOB, ["sig-a"])
+    assert registry.version == version_after_acquire
+
+    # Освобождение без владений тоже ничего не меняет.
+    registry.release("scenario:nobody")
+    assert registry.version == version_after_acquire
+
+    registry.release(ALICE.id)
+    assert registry.version == version_after_acquire + 1
+
+
 def test_same_owner_reacquires_freely_and_disjoint_sets_coexist():
     registry = OwnershipRegistry()
     assert registry.acquire(ALICE, ["sig-a"]) == []

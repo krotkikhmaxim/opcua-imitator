@@ -34,6 +34,13 @@ class OwnershipRegistry:
 
     def __init__(self) -> None:
         self._held: Dict[str, Owner] = {}
+        # Монотонный номер состояния владения: фид WS рассылает карту
+        # владельцев, только когда он вырос (ТЗ #5 §12).
+        self._version = 0
+
+    @property
+    def version(self) -> int:
+        return self._version
 
     def acquire(self, owner: Owner, signals: Iterable[str]) -> List[OwnershipConflict]:
         """Заявить набор; при любом конфликте ничего не занято, список возвращён."""
@@ -47,6 +54,7 @@ class OwnershipRegistry:
             return conflicts
         for signal_id in wanted:
             self._held[signal_id] = owner
+        self._version += 1
         return []
 
     def release(self, owner_id: str) -> List[str]:
@@ -54,6 +62,8 @@ class OwnershipRegistry:
         freed = [sid for sid, held in self._held.items() if held.id == owner_id]
         for sid in freed:
             del self._held[sid]
+        if freed:
+            self._version += 1
         return freed
 
     def owner_of(self, signal_id: str) -> Optional[Owner]:

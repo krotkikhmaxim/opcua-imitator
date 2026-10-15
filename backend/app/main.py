@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -139,6 +140,8 @@ set_verification_services(_ledger)
 app.include_router(verification_router)
 # WS-фид дельт: тот же реестр (смена активного драйвера уходит в WS) и тот же
 # шлюз (тик пересчитывает heartbeat, если драйвер остановился мимо маршрута).
+# §12: дельты несут ревизию и источник каждой смены, каждый тик — с seq;
+# карта владельцев уходит при смене версии реестра владения.
 _values_feed = ValuesFeed(
     _bus.read_value,
     [cfg["id"] for cfg in _cache.config],
@@ -146,6 +149,11 @@ _values_feed = ValuesFeed(
     settings.VALUES_FEED_INTERVAL_S,
     registry=_registry,
     gate=_gate,
+    revision_of=_cache.get_revision,
+    source_of=lambda sid: (
+        state.source if (state := _cache.get_state(sid)) is not None else None
+    ),
+    ownership=_ownership,
 )
 
 
@@ -174,8 +182,8 @@ async def shutdown() -> None:
     await _bus.close()
 
 
-@app.get("/api/signals")
-async def get_signals() -> dict:
+async def _signals_snapshot() -> dict:
+    """Снимок всех карточек: один и тот же для REST и WS (ТЗ #5 §12)."""
     from typing import Any, Dict
 
     signals: Dict[str, Any] = {}
@@ -208,6 +216,11 @@ async def get_signals() -> dict:
             "logic": cfg.get("logic"),
         }
     return {"signals": signals}
+
+
+@app.get("/api/signals")
+async def get_signals() -> dict:
+    return await _signals_snapshot()
 
 
 class WriteSignalRequest(BaseModel):
@@ -407,8 +420,16 @@ async def put_heartbeat(req: HeartbeatRequest) -> dict:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
+    # §12: подключение начинается со снимка — между REST-снимком и потоком
+    # дельт нет незамеченного пропуска: клиент сверяет seq. Снимок строится
+    # до accept: тик между снимком и подпиской уйдёт мимо и проявится
+    # пропуском seq, по которому клиент перезапросит снимок.
+    snapshot = await _signals_snapshot()
+    snapshot["type"] = "signals_snapshot"
+    snapshot["seq"] = _values_feed.seq
     await manager.connect(websocket)
     try:
+        await websocket.send_text(json.dumps(snapshot, ensure_ascii=False))
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
