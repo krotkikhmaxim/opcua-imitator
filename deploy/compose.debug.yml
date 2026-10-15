@@ -1,0 +1,9 @@
+# Отладочный оверрайд: публикует порты ТОЛЬКО на loopback сервера.
+# Нужен для ручной приёмки через ssh-туннель, в production не применяется.
+#   docker compose -f deploy/compose.prod.yml -f deploy/compose.debug.yml up -d
+#   ssh -L 8000:127.0.0.1:8000 srv170637
+services:
+  imitator:
+    ports:
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:4840:4840"

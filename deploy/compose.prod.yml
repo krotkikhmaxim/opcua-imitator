@@ -1,0 +1,47 @@
+# Production-контур имитатора. Публичных портов НЕТ:
+# HTTP отдаёт Caddy по сети asutp-edge, OPC UA доступен станции по asutp-telemetry.
+# Запуск:  docker compose -f deploy/compose.prod.yml --env-file deploy/.env up -d
+name: asutp-imitator
+
+services:
+  imitator:
+    image: ${IMITATOR_IMAGE:-opcua-imitator:local}
+    container_name: opcua-imitator
+    restart: unless-stopped
+    user: "10002:10002"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPC_UA_MODE: server
+      OPC_UA_SERVER_ENDPOINT: opc.tcp://0.0.0.0:4840
+      SAVED_STATES_DIR: /app/saved_states
+      SCENARIO_JOURNAL_PATH: /app/scenario_runs/journal.jsonl
+      VERIFICATION_DIR: /app/scenario_runs/verifications
+      PLAYBACK_UPLOAD_DIR: /app/playback_uploads
+      STATION_URL: ${STATION_URL:-http://asutp-station:8080}
+      STATION_PROJECT_ID: ${STATION_PROJECT_ID:-}
+      STATION_TIMEOUT_S: ${STATION_TIMEOUT_S:-5}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://opcuaimitator.ru}
+      PERSIST_INTERVAL_S: ${PERSIST_INTERVAL_S:-5}
+    volumes:
+      - /opt/asutp/state/imitator/saved_states:/app/saved_states
+      - /opt/asutp/state/imitator/scenario_runs:/app/scenario_runs
+      - /opt/asutp/state/imitator/playback_uploads:/app/playback_uploads
+      - /opt/asutp/state/imitator/data:/app/data
+    networks:
+      asutp-edge:
+        aliases: [opcua-imitator]
+      asutp-telemetry:
+        aliases: [opcua-imitator]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  asutp-edge:
+    external: true
+  asutp-telemetry:
+    external: true
