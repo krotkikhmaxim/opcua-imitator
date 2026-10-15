@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +28,7 @@ from app.api.verification_routes import (
     set_verification_services,
 )
 from app.config import load_signal_config, settings
+from app.services import signal_types
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
 from app.services.opc_bus import OPCMode, OPCSignalBus
@@ -221,6 +222,10 @@ class WriteSignalRequest(BaseModel):
 class WriteBatchRequest(BaseModel):
     values: dict[str, Any] = {}
     op_id: Optional[str] = None
+    # §8: защита ручной записи от устаревшего снимка — ревизия на момент
+    # чтения клиентом; конфликт отклоняет пакет, значение не перезаписывается
+    # незаметно.
+    expected_revisions: Optional[dict[str, int]] = None
 
 
 _STATUS_TO_HTTP = {
@@ -290,6 +295,71 @@ async def write_batch(req: WriteBatchRequest) -> dict:
     result = await _bus.apply_changes(
         req.values,
         source="manual_batch",
+        op_id=req.op_id,
+        expected_revisions=req.expected_revisions,
+        require_writable=True,
+        contract="api",
+    )
+    if result["status"] == "conflict":
+        raise HTTPException(status_code=409, detail=result["error"])
+    now = datetime.now(timezone.utc)
+    for signal_id in result["applied"]:
+        _ledger.note(now, signal_id, result["results"][signal_id]["value"])
+    body = {
+        "status": result["status"],
+        "applied": result["applied"],
+        "errors": result["errors"],
+        "results": result["results"],
+        "op_id": result["op_id"],
+    }
+    if result.get("replayed"):
+        body["replayed"] = True
+    return body
+
+
+class ResetRequest(BaseModel):
+    """Сброс к начальным значениям реестра (ТЗ #5 §8).
+
+    Без списка — весь разрешённый (записываемый) набор; со списком —
+    выбранный набор. Неизвестный идентификатор — честный отказ.
+    """
+
+    signal_ids: Optional[List[str]] = None
+    op_id: Optional[str] = None
+
+
+@app.post("/api/signals/reset")
+async def reset_signals(req: ResetRequest) -> dict:
+    """Сброс значений через общий механизм применения (ТЗ #5 §8).
+
+    Начальные значения берутся из реестра (поле ``default``, иначе —
+    значение типа). Те же проверки и правила, что у ручной записи: тип,
+    право на запись, владение (занятый сценарием сигнал отклонит сброс
+    кодом ``owned``), дедупликация op_id. Таймлайн не затрагивается:
+    позиция не меняется, тренд-файл не читается.
+    """
+    ensure_manual_writes_allowed(exclude={"scenario"})
+    known = {cfg["id"]: cfg for cfg in _cache.config}
+    if req.signal_ids is not None:
+        unknown = [signal_id for signal_id in req.signal_ids if signal_id not in known]
+        if unknown:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Сигнал(ы) не найдены: {', '.join(unknown)}",
+            )
+        chosen: List[str] = list(req.signal_ids)
+    else:
+        chosen = [cfg["id"] for cfg in _cache.config if cfg.get("writable", False)]
+    values: dict[str, Any] = {}
+    for signal_id in chosen:
+        cfg = known[signal_id]
+        default = cfg.get("default")
+        if default is None:
+            default = signal_types.default_for(cfg.get("type") or "Boolean")
+        values[signal_id] = default
+    result = await _bus.apply_changes(
+        values,
+        source="reset",
         op_id=req.op_id,
         require_writable=True,
         contract="api",
