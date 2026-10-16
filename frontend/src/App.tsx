@@ -5,7 +5,6 @@ import EmergencyButtons from './components/mnemo/EmergencyButtons'
 import MnemoPanel from './components/mnemo/MnemoPanel'
 import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream, type OwnerEntry, type SignalEntry } from './components/mnemo/useSignalStream'
-import ArchivePlaybackPanel from './components/playback/ArchivePlaybackPanel'
 import PlaybackPanel from './components/playback/PlaybackPanel'
 import TimelineBadge from './components/playback/TimelineBadge'
 import TimelinePanel from './components/playback/TimelinePanel'
@@ -549,7 +548,6 @@ export default function App() {
               />
               <EmergencyButtons onNotify={showStatus} />
               <PlaybackPanel onNotify={showStatus} />
-              <ArchivePlaybackPanel onNotify={showStatus} />
               {status && (
                 <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>
               )}

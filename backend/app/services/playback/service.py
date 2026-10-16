@@ -8,9 +8,8 @@
 
 Seek не гарантирует монотонность меток: файл пересматривается до цели,
 значения на цель пишутся текущим wall-временем, дальше метки снова
-следуют за трендом (честные метки на скрабе даёт архивный плейбэк,
-фаза 2). Просмотр вглубь длинного файла — скан с начала; шаги по 2000
-строк отдают управление циклу событий, чтобы API оставался живым.
+следуют за трендом. Просмотр вглубь длинного файла — скан с начала; шаги
+по 2000 строк отдают управление циклу событий, чтобы API оставался живым.
 
 Источник отдаёт только изменения (первый кадр — весь); пропуски и nan не
 создают записей. Сервис не знает ни FastAPI, ни OPC UA: writer и часы
@@ -27,7 +26,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional
 
-from .archive_reader import ArchiveError, open_archive
 from .xlsx import PlaybackSourceError, XlsxSource, open_source
 
 logger = logging.getLogger("opcua-imitator.playback")
@@ -147,7 +145,7 @@ class PlaybackService:
         unmatched_columns: int = 0,
         ambiguous: int = 0,
     ) -> Dict[str, Any]:
-        """Взять готовый источник (XLSX или архив); общий сброс состояния.
+        """Взять готовый источник (XLSX); общий сброс состояния.
 
         Неудачная перезагрузка (исключение до этой строки) оставляет прежний
         источник загруженным.
@@ -180,33 +178,6 @@ class PlaybackService:
         self._holds = False
         self._status = self._fresh_status()
         return self.status()
-
-    def load_archive(
-        self,
-        archive_path: str,
-        *,
-        signal_ids: Optional[List[str]] = None,
-        start_us: Optional[int] = None,
-        end_us: Optional[int] = None,
-        max_changes: int,
-    ) -> Dict[str, Any]:
-        """Загрузить окно SQLite-архива станции; метки времени — исходные.
-
-        Отсчёты на каждый такт записи (не только изменения) — дедупликацию
-        делает проход, как для XLSX. ``bad``-качество в шину не идёт и
-        считается в статусе источника.
-        """
-        try:
-            source = open_archive(
-                archive_path,
-                signal_ids=signal_ids,
-                start_us=start_us,
-                end_us=end_us,
-                max_changes=max_changes,
-            )
-        except ArchiveError as exc:
-            raise PlaybackError(exc.code, exc.message)
-        return self.load_from(source, mapped_signals=len(source.signal_ids))
 
     @property
     def loaded(self) -> bool:

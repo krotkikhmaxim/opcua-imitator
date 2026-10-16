@@ -1,7 +1,7 @@
 """Единая таблица типов сигналов (ТЗ #5, шаг 3 — §5 и §11).
 
-До этого шага приведение значений жило в четырёх местах с разными правилами
-(``main._coerce_value``, ``playback/xlsx._coerce``, ``archive_reader._coerce_value``,
+До этого шага приведение значений жило в трёх местах с разными правилами
+(``main._coerce_value``, ``playback/xlsx._coerce``,
 ``embedded_server.VARIANT_TYPES``): Double не существовал, любое число молча
 становилось Boolean, дробное усекалось до целого, неизвестный тип в сервере
 молча становился строкой. Здесь одна таблица: резолв типа, значение по
@@ -60,7 +60,7 @@ _TYPES: dict[str, SignalType] = {
     "Int32": _INT32,
     "Double": _DOUBLE,
     # Наследуемые написания: 10 фикстурных конфигов (config.py) пишут
-    # bool/int/float, колонки архива станции — boolean/integer/long/double.
+    # bool/int/float; канонические имена SQLite — boolean/integer/long/double.
     "bool": _BOOLEAN,
     "boolean": _BOOLEAN,
     "int": _INT32,

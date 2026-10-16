@@ -11,7 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.api.archive_routes import router as archive_router
 from app.api.diagnostics_routes import router as diagnostics_router, set_diagnostics_journal
 from app.api.playback_routes import router as playback_router, set_playback_service
 from app.api.routes import router, set_services, set_snapshot_hook
@@ -158,8 +157,6 @@ set_playback_service(
 # отбивает запуск конфликтом 409: шину освобождает тот же service.stop().
 set_playback_stop(lambda: _playback.stop() if _playback.bus_held else None)
 app.include_router(playback_router)
-# Архив станции: сводка серий для окна плейбэка; read-only в принципе.
-app.include_router(archive_router)
 # Станция — наблюдатель: прокси только читает её API (белый список под
 # /api/station), CORS у станции нет по умолчанию и не появляется.
 _station_proxy = StationProxy(settings.STATION_URL, timeout_s=settings.STATION_TIMEOUT_S)

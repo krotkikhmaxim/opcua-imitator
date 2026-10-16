@@ -333,27 +333,3 @@ export interface StationSchematicPagesResponse {
   count: number
   pages: StationSchematicPageBrief[]
 }
-
-// -- архив станции (окно для плейбэка) ----------------------------------------
-
-export interface ArchiveSeriesInfo {
-  signal_id: string
-  value_type: string
-  rows: number
-  observed_min_us: number
-  observed_max_us: number
-}
-
-export interface ArchiveSeriesResponse {
-  path: string
-  observed_min_us: number | null
-  observed_max_us: number | null
-  total_rows: number
-  series: ArchiveSeriesInfo[]
-}
-
-export interface LoadArchiveRequest {
-  signal_ids?: string[] | null
-  start_us?: number | null
-  end_us?: number | null
-}

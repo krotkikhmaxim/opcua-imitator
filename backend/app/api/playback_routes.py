@@ -64,14 +64,6 @@ class LoadByPathRequest(BaseModel):
     path: str
 
 
-class LoadArchiveRequest(BaseModel):
-    """Окно архива станции: сигналы (None — все) и диапазон observed_us."""
-
-    signal_ids: Optional[list[str]] = None
-    start_us: Optional[int] = None
-    end_us: Optional[int] = None
-
-
 class ControlRequest(BaseModel):
     action: str
     rate: Optional[float] = None
@@ -116,31 +108,6 @@ async def load_upload(file: UploadFile = File(...)) -> Dict[str, Any]:
     target = _upload_dir / safe
     target.write_bytes(bytes(data))
     return _service_required().load(str(target), _get_configs(), max_bytes=_max_bytes())
-
-
-@router.post("/load_archive")
-async def load_archive(req: LoadArchiveRequest) -> Dict[str, Any]:
-    """Окно SQLite-архива станции в тот же плейбэк (source=архив).
-
-    Открытие окна (сводный COUNT по 467 МБ) — вне цикла событий: поток
-    запросов API не должен замерзать на агрегате sqlite.
-    """
-    import asyncio
-
-    from app.config import settings
-
-    service = _service_required()
-    try:
-        return await asyncio.to_thread(
-            service.load_archive,
-            settings.ARCHIVE_PATH,
-            signal_ids=req.signal_ids,
-            start_us=req.start_us,
-            end_us=req.end_us,
-            max_changes=settings.PLAYBACK_MAX_CHANGES,
-        )
-    except PlaybackError as exc:
-        raise _translate(exc)
 
 
 @router.post("/control")
