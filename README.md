@@ -66,6 +66,27 @@ cd frontend && npm run build
 
 После сборки `frontend/dist` раздаётся backend по адресу `/`.
 
+## Production-развёртывание
+
+Стенд развёрнут за Caddy + Authelia:
+
+- **https://opcuaimitator.ru** — UI имитатора (вход через
+  `auth.opcuaimitator.ru`);
+- **https://asutpai.ru** — UI станции (`auth.asutpai.ru`).
+
+Запуск — `Dockerfile` + `deploy/compose.prod.yml` (образ из `IMITATOR_IMAGE`,
+состояние в `/opt/asutp/state/imitator/*`). Публичных портов контур не
+публикует: HTTP отдаёт Caddy по сети `asutp-edge`, OPC UA станция читает по
+сети `asutp-telemetry` (`opc.tcp://opcua-imitator:4840`, контейнер
+`opcua-imitator`). Конфиг — `deploy/.env` из `deploy/.env.example`
+(`CORS_ORIGINS=https://opcuaimitator.ru`,
+`STATION_URL=http://asutp-station:8080`).
+
+Ручная приёмка — оверрайд `deploy/compose.debug.yml`: порты только на
+`127.0.0.1` сервера, дальше ssh-туннель. Смоук OPC UA —
+`scripts/smoke_opcua.py`: обходит дерево адресного пространства, читает
+значения и проверяет отказ внешней записи (`BadUserAccessDenied`).
+
 ## API
 
 | Метод | Эндпоинт | Назначение | Вход | Выход |
@@ -408,7 +429,8 @@ make playback-control ACTION=stop
 ## Станция: полный контур и сверка
 
 Станция asutpv1_bigllm — наблюдатель стенда: она собирает значения по OPC UA
-(`opc.tcp://<стенд>:4840`), снимает снапшоты и рассчитывает состояние
+(`opc.tcp://<стенд>:4840`; в развёртывании — по сети `asutp-telemetry`, UI
+станции — https://asutpai.ru), снимает снапшоты и рассчитывает состояние
 программы. Имитатор даёт ей read-only прокси (`/api/station/*`): станция
 слушает loopback без CORS намеренно, браузер стенда спрашивает её через
 сервер-сайд проход. Запись в станцию закрыта белым списком маршрутов, а не
