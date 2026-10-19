@@ -462,13 +462,6 @@ export default function App() {
         >
           Таблица сигналов
         </button>
-        <button
-          type="button"
-          className={`app-tab${tab === 'emergency' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('emergency')}
-        >
-          Имитация аварий
-        </button>
       </div>
 
       {/* Пульт состояний нужен там, где значениями управляют руками:
