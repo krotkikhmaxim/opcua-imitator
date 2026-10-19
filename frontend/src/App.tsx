@@ -19,6 +19,16 @@ interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
 
+// FEATURE emergency-simulation: ОТКЛЮЧЕНА 2026-10-19 (коммит b7341de).
+// Кнопка вкладки «Имитация аварий» убрана из .app-tabs, поэтому tab никогда
+// не станет 'emergency'. Код экрана (лист Э3, мнемосхема, аварийные кнопки,
+// плейбек, журнал достоверности, эхо станции) и его компоненты оставлены
+// целиком и не удалены: фича возвращается двумя правками —
+//   1) EMERGENCY_TAB_ENABLED = true;
+//   2) вернуть <button> вкладки в блок .app-tabs ниже.
+// Флаг, а не удаление, чтобы «недостижимая ветка» была явной для читателя.
+const EMERGENCY_TAB_ENABLED: boolean = false
+
 type Tab = 'emergency' | 'modes' | 'table'
 
 type SimMode = 'schematic' | 'mnemo'
@@ -498,7 +508,8 @@ export default function App() {
         </>
       )}
 
-      {tab === 'emergency' && (
+      {/* FEATURE emergency-simulation — выключена флагом EMERGENCY_TAB_ENABLED */}
+      {EMERGENCY_TAB_ENABLED && tab === 'emergency' && (
         <>
           <div className="sim-switch">
             <button
