@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MachineControlPanel from './components/machine/MachineControlPanel'
-import RecordsPanel from './components/records/RecordsPanel'
 import StateManager from './components/StateManager'
 import { useSignalStream, type OwnerEntry, type SignalEntry } from './components/mnemo/useSignalStream'
 import { signalsApi } from './api'
@@ -16,7 +15,7 @@ interface SignalsResponse {
 // Компоненты остались в дереве — components/mnemo, components/schematic,
 // components/playback, components/station — и возвращаются одной правкой
 // навигации, без восстановления кода.
-type Tab = 'machine' | 'records' | 'table'
+type Tab = 'machine' | 'table'
 
 type DraftValue = string | boolean
 
@@ -318,7 +317,7 @@ export default function App() {
           <div>
             <h1>OPC UA · Имитатор подъёмной машины</h1>
             <p className="app-subtitle">
-              Пульт машины · записи телеметрии · все сигналы установки
+              Пульт машины · все сигналы установки
             </p>
           </div>
           <div className="app-header-badges">
@@ -355,13 +354,6 @@ export default function App() {
         </button>
         <button
           type="button"
-          className={`app-tab${tab === 'records' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('records')}
-        >
-          Записи телеметрии
-        </button>
-        <button
-          type="button"
           className={`app-tab${tab === 'table' ? ' app-tab-on' : ''}`}
           onClick={() => setTab('table')}
         >
@@ -370,7 +362,6 @@ export default function App() {
       </div>
 
       {tab === 'machine' && <MachineControlPanel onShowSignals={() => setTab('table')} />}
-      {tab === 'records' && <RecordsPanel />}
 
       {tab === 'table' && (
         <>
