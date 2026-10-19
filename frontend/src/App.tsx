@@ -1,42 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import RecordedModesPanel from './components/RecordedModesPanel'
+import MachineControlPanel from './components/machine/MachineControlPanel'
+import RecordsPanel from './components/records/RecordsPanel'
 import StateManager from './components/StateManager'
-import EmergencyButtons from './components/mnemo/EmergencyButtons'
-import MnemoPanel from './components/mnemo/MnemoPanel'
-import TruthJournalPanel from './components/mnemo/TruthJournalPanel'
 import { useSignalStream, type OwnerEntry, type SignalEntry } from './components/mnemo/useSignalStream'
-import PlaybackPanel from './components/playback/PlaybackPanel'
-import TimelineBadge from './components/playback/TimelineBadge'
-import TimelinePanel from './components/playback/TimelinePanel'
-import TimelineStrip from './components/playback/TimelineStrip'
-import SchematicView from './components/schematic/SchematicView'
-import StationEchoPanel from './components/station/StationEchoPanel'
-import { heartbeatApi, schematicApi, signalsApi } from './api'
-import { HeartbeatResponse, SchematicBridge, Signal, WriteBatchResponse } from './types'
+import { signalsApi } from './api'
+import { Signal, WriteBatchResponse } from './types'
 import './App.css'
 
 interface SignalsResponse {
   signals: Record<string, Omit<Signal, 'id'> & { id?: string }>
 }
 
-// FEATURE emergency-simulation: ОТКЛЮЧЕНА 2026-10-19 (коммит b7341de).
-// Кнопка вкладки «Имитация аварий» убрана из .app-tabs, поэтому tab никогда
-// не станет 'emergency'. Код экрана (лист Э3, мнемосхема, аварийные кнопки,
-// плейбек, журнал достоверности, эхо станции) и его компоненты оставлены
-// целиком и не удалены: фича возвращается двумя правками —
-//   1) EMERGENCY_TAB_ENABLED = true;
-//   2) вернуть <button> вкладки в блок .app-tabs ниже.
-// Флаг, а не удаление, чтобы «недостижимая ветка» была явной для читателя.
-const EMERGENCY_TAB_ENABLED: boolean = false
-
-type Tab = 'emergency' | 'modes' | 'table'
-
-type SimMode = 'schematic' | 'mnemo'
-
-// Два вида внутри «Сценариев и режимов»: таймлайн (прогон тренда по
-// реальному времени) и стат-режимы (синтетические эпизоды и записанные
-// режимы RecordedModesPanel, проигрываются в темпе).
-type ModesView = 'timeline' | 'modes'
+// Экран «Имитация аварий» (лист Э3 и мнемосхема) выведен из навигации
+// 2026-10-19: его место занял пульт машины (состояние → воздействие).
+// Компоненты остались в дереве — components/mnemo, components/schematic,
+// components/playback, components/station — и возвращаются одной правкой
+// навигации, без восстановления кода.
+type Tab = 'machine' | 'records' | 'table'
 
 type DraftValue = string | boolean
 
@@ -106,19 +86,7 @@ export default function App() {
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({})
   const [applying, setApplying] = useState(false)
-  const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
-  const [heartbeatBusy, setHeartbeatBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('modes')
-  // Режим внутри «Имитации аварий»: лист Э3 или панель мнемо.
-  const [simMode, setSimMode] = useState<SimMode>('schematic')
-  // Вид внутри «Сценариев и режимов»; при загрузке страницы встречают
-  // сценарии и режимы.
-  const [modesView, setModesView] = useState<ModesView>('modes')
-  // Мост «обозначение Э3 → сигналы»: карта сигнал→аппарат и выбранный аппарат
-  // (клик по бейджу схемы подсвечивает его сигналы в мнемо и наоборот).
-  const [bridge, setBridge] = useState<SchematicBridge | null>(null)
-  const [bridgeError, setBridgeError] = useState<string | null>(null)
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('machine')
   const statusTimer = useRef<number | null>(null)
 
   const refreshSignals = useCallback(async () => {
@@ -188,73 +156,6 @@ export default function App() {
     if (statusTimer.current) window.clearTimeout(statusTimer.current)
     statusTimer.current = window.setTimeout(() => setStatus(null), 5000)
   }, [])
-
-  // Мост читается один раз; его нет (не собран) — схема не показывается,
-  // а остальной UI живёт как прежде.
-  useEffect(() => {
-    schematicApi
-      .bridge()
-      .then((b) => {
-        setBridge(b)
-        setBridgeError(null)
-      })
-      .catch((e) => {
-        const code = e?.response?.data?.detail?.code
-        setBridgeError(
-          code === 'bridge_not_built'
-            ? 'Мост схема↔сигналы не собран (scripts/build_schematic_bridge.py)'
-            : 'Мост схема↔сигналы недоступен',
-        )
-      })
-  }, [])
-
-  const deviceBySignal = useMemo(() => {
-    const map: Record<string, string> = {}
-    if (bridge) {
-      for (const [dt, dev] of Object.entries(bridge.devices)) {
-        for (const id of dev.signals) map[id] = dt
-      }
-    }
-    return map
-  }, [bridge])
-
-  // Клик по имени сигнала («Аппарат U1 — показать на схеме Э3»): выбрать
-  // аппарат и показать его лист. Обратный переход не автоматический — бейдж
-  // на схеме просто подсвечивается, режим мнемо оператор выбирает сам.
-  const selectFromMnemo = useCallback((device: string | null) => {
-    setSelectedDevice(device)
-    if (device !== null) setSimMode('schematic')
-  }, [])
-
-  // Состояние heartbeat инициализируется из backend, а не хранится локально
-  useEffect(() => {
-    heartbeatApi
-      .get()
-      .then(setHeartbeat)
-      .catch(() => setHeartbeat({ enabled: false, supported: false }))
-  }, [])
-
-  const toggleHeartbeat = useCallback(async () => {
-    if (!heartbeat || heartbeatBusy) return
-    setHeartbeatBusy(true)
-    const target = !heartbeat.enabled
-    try {
-      const res = await heartbeatApi.set(target)
-      setHeartbeat(res)
-      showStatus('ok', `Heartbeat: ${res.enabled ? 'включён' : 'выключен'}`)
-    } catch (e: any) {
-      showStatus('err', e?.response?.data?.detail || 'Ошибка переключения heartbeat')
-      try {
-        // вернуть UI к фактическому состоянию backend
-        const res = await heartbeatApi.get()
-        setHeartbeat(res)
-      } catch {
-        /* оставляем последнее известное состояние */
-      }
-    } finally {
-      setHeartbeatBusy(false)
-    }
-  }, [heartbeat, heartbeatBusy, showStatus])
 
   const setDraft = useCallback((id: string, value: DraftValue) => {
     setDrafts((prev) => ({ ...prev, [id]: value }))
@@ -415,31 +316,22 @@ export default function App() {
       <header className="app-header">
         <div className="app-header-row">
           <div>
-            <h1>ОПК UA — Мониторинг подъёмной машины</h1>
-            <p className="app-subtitle">Входные сигналы ПЛК и слова PROFIBUS · сохранение и загрузка состояний</p>
+            <h1>OPC UA · Имитатор подъёмной машины</h1>
+            <p className="app-subtitle">
+              Пульт машины · записи телеметрии · все сигналы установки
+            </p>
           </div>
           <div className="app-header-badges">
             <span
               className={`app-conn app-conn-${streamConnected ? 'live' : 'poll'}`}
               title={streamConnected ? 'Живые значения по WebSocket' : 'WebSocket недоступен — значения по опросу'}
             >
-              {streamConnected ? 'live' : 'опрос'}
+              {streamConnected ? '● Подключено' : '● Опрос'}
             </span>
             {driverActive && (
               <span className="app-driver" title={`Активный драйвер: ${activeDrivers.join(', ')}`}>
                 драйвер: {activeDrivers.join(', ')}
               </span>
-            )}
-            {heartbeat && heartbeat.supported && (
-              <button
-                type="button"
-                className={`heartbeat-toggle${heartbeat.enabled ? ' heartbeat-toggle-on' : ''}`}
-                disabled={heartbeatBusy}
-                onClick={toggleHeartbeat}
-                title="Heartbeat: циклическая перезапись значений с обновлением SourceTimestamp (1 раз/сек)"
-              >
-                Heartbeat: {heartbeatBusy ? '…' : heartbeat.enabled ? 'ON' : 'OFF'}
-              </button>
             )}
           </div>
         </div>
@@ -453,249 +345,160 @@ export default function App() {
         </div>
       )}
 
-      {/* Полоса таймлайна: живёт под шапкой на всех вкладках — показывает
-          идущий прогон и сообщает об останове при применении сценария. */}
-      <TimelineStrip />
-
       <div className="app-tabs">
         <button
           type="button"
-          className={`app-tab${tab === 'modes' ? ' app-tab-on' : ''}`}
-          onClick={() => setTab('modes')}
+          className={`app-tab${tab === 'machine' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('machine')}
         >
-          Сценарии и режимы
+          Управление машиной
+        </button>
+        <button
+          type="button"
+          className={`app-tab${tab === 'records' ? ' app-tab-on' : ''}`}
+          onClick={() => setTab('records')}
+        >
+          Записи телеметрии
         </button>
         <button
           type="button"
           className={`app-tab${tab === 'table' ? ' app-tab-on' : ''}`}
           onClick={() => setTab('table')}
         >
-          Таблица сигналов
+          Все сигналы
         </button>
       </div>
 
-      {/* Пульт состояний нужен там, где значениями управляют руками:
-          имитация аварий и таблица сигналов; на сценариях он не нужен. */}
-      {(tab === 'emergency' || tab === 'table') && (
-        <StateManager onStateLoaded={handleStateLoaded} />
-      )}
-
-      {tab === 'modes' && (
-        <>
-          <div className="sim-switch">
-            <button
-              type="button"
-              className={modesView === 'modes' ? 'sim-switch-on' : ''}
-              onClick={() => setModesView('modes')}
-            >
-              Статические режимы
-            </button>
-            <button
-              type="button"
-              className={modesView === 'timeline' ? 'sim-switch-on' : ''}
-              onClick={() => setModesView('timeline')}
-            >
-              Таймлайн
-            </button>
-          </div>
-          {modesView === 'timeline' && <TimelinePanel onNotify={showStatus} />}
-          {modesView === 'modes' && (
-            <>
-              <TimelineBadge onOpen={() => setModesView('timeline')} />
-              <RecordedModesPanel onModeChanged={refreshSignals} />
-            </>
-          )}
-        </>
-      )}
-
-      {/* FEATURE emergency-simulation — выключена флагом EMERGENCY_TAB_ENABLED */}
-      {EMERGENCY_TAB_ENABLED && tab === 'emergency' && (
-        <>
-          <div className="sim-switch">
-            <button
-              type="button"
-              className={simMode === 'schematic' ? 'sim-switch-on' : ''}
-              onClick={() => setSimMode('schematic')}
-            >
-              По схеме Э3
-            </button>
-            <button
-              type="button"
-              className={simMode === 'mnemo' ? 'sim-switch-on' : ''}
-              onClick={() => setSimMode('mnemo')}
-            >
-              По мнемосхеме
-            </button>
-          </div>
-          {simMode === 'schematic' && (
-            <>
-              {bridgeError && (
-                <div className="signals-status signals-status-err">{bridgeError}</div>
-              )}
-              {bridge && (
-                <SchematicView
-                  signals={signals}
-                  bridge={bridge}
-                  selectedDevice={selectedDevice}
-                  onSelectDevice={setSelectedDevice}
-                />
-              )}
-            </>
-          )}
-          {simMode === 'mnemo' && (
-            <div className="mnemo-tab">
-              <TimelineBadge
-                onOpen={() => {
-                  setTab('modes')
-                  setModesView('timeline')
-                }}
-              />
-              <EmergencyButtons onNotify={showStatus} />
-              <PlaybackPanel onNotify={showStatus} />
-              {status && (
-                <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>
-              )}
-              <MnemoPanel
-                signals={signals}
-                driverActive={driverActive}
-                showStatus={showStatus}
-                deviceBySignal={deviceBySignal}
-                selectedDevice={selectedDevice}
-                onSelectDevice={selectFromMnemo}
-                onWritten={refreshSignals}
-                offline={!streamConnected}
-              />
-              <TruthJournalPanel />
-              <StationEchoPanel />
-            </div>
-          )}
-        </>
-      )}
+      {tab === 'machine' && <MachineControlPanel onShowSignals={() => setTab('table')} />}
+      {tab === 'records' && <RecordsPanel />}
 
       {tab === 'table' && (
-      <section className="signals-panel">
-        <div className="signals-head">
-          <h2>Входные сигналы</h2>
-          {updatedAt && <span className="signals-updated">обновлено {updatedAt}</span>}
-          <input
-            className="signals-filter"
-            placeholder="Поиск: название, тег, канал, модуль, устройство, бит…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <span className="signals-count">{filtered.length} из {signals.length}</span>
-        </div>
-        {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
-        <div className="signals-applybar">
-          <span className="signals-changed">
-            {changedCount > 0 ? `Изменено сигналов: ${changedCount}` : 'Изменений нет'}
-          </span>
-          <button
-            className="signals-apply"
-            disabled={applying || !streamConnected || changedCount === 0}
-            title={streamConnected ? undefined : 'Связь с сервером потеряна'}
-            onClick={applyChanges}
-          >
-            {applying ? 'Применение…' : `Применить${changedCount > 0 ? ` (${changedCount})` : ''}`}
-          </button>
-          {changedCount > 0 && (
-            <button className="signals-cancel" disabled={applying || !streamConnected} onClick={() => resetDrafts(Object.keys(drafts))}>
-              Сбросить
-            </button>
-          )}
-          {changedCount > 0 && (
-            <button
-              className="signals-cancel"
-              disabled={applying || !streamConnected}
-              title="Сбросить выбранные сигналы к начальным значениям реестра"
-              onClick={resetSelected}
-            >
-              ⟲ К начальным ({changedCount})
-            </button>
-          )}
-          <button
-            className="signals-cancel"
-            disabled={applying || !streamConnected}
-            title="Сбросить весь записываемый набор к начальным значениям реестра"
-            onClick={resetAll}
-          >
-            ⟲ Всё к начальным
-          </button>
-        </div>
-        {groups.map(([channel, list]) => (
-          <div className="signals-group" key={channel}>
-            <div className="signals-group-head">
-              <h3 className="signals-group-title">{channel}</h3>
-              <span className="signals-count">{list.length}</span>
+        <>
+          <StateManager onStateLoaded={handleStateLoaded} />
+          <section className="signals-panel">
+            <div className="signals-head">
+              <h2>Все сигналы</h2>
+              {updatedAt && <span className="signals-updated">обновлено {updatedAt}</span>}
+              <input
+                className="signals-filter"
+                placeholder="Поиск: название, тег, канал, модуль, устройство, бит…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+              <span className="signals-count">{filtered.length} из {signals.length}</span>
             </div>
-            <div className="signals-table-wrap">
-              <table className="signals-table">
-                <thead>
-                  <tr>
-                    <th>Шкаф</th>
-                    <th>Модуль</th>
-                    <th>Устройство</th>
-                    <th>Бит/Слово</th>
-                    <th>Сигнал</th>
-                    <th>Тип</th>
-                    <th>Значение</th>
-                    <th>Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((s) => (
-                    <tr key={s.id} className={drafts[s.id] !== undefined ? 'signals-row-changed' : ''}>
-                      <td className="signals-cell-cab">{s.cabinet || '—'}</td>
-                      <td className="mono">{s.module || '—'}</td>
-                      <td className="mono">{s.device || '—'}</td>
-                      <td className="mono">
-                        <span title={s.direction || ''}>{locationCell(s)}</span>
-                      </td>
-                      <td>
-                        <div className="signals-name" title={s.logic || signalAddress(s)}>
-                          {s.name}
-                        </div>
-                        <div className="signals-tag mono" title={signalAddress(s)}>
-                          {signalAddress(s)}
-                        </div>
-                      </td>
-                      <td className="mono">{s.type}</td>
-                      <td>
-                        <SignalValueCell
-                          signal={s}
-                          draft={drafts[s.id] !== undefined ? drafts[s.id] : undefined}
-                          onChange={setDraft}
-                        />
-                      </td>
-                      <td className="signals-statuscell">
-                        {/* §12: источник последнего изменения и владелец. */}
-                        <div className="signals-tag mono" title={s.source ? `Источник: ${s.source}` : 'Источник: —'}>
-                          {s.source || '—'}
-                        </div>
-                        {s.owner && (
-                          <div className="signals-owner" title={`Держит: ${s.owner_id}`}>
-                            🔒 {s.owner}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {list.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="signals-empty">Нет сигналов</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            {status && <div className={`signals-status signals-status-${status.kind}`}>{status.text}</div>}
+            <div className="signals-applybar">
+              <span className="signals-changed">
+                {changedCount > 0 ? `Изменено сигналов: ${changedCount}` : 'Изменений нет'}
+              </span>
+              <button
+                className="signals-apply"
+                disabled={applying || !streamConnected || changedCount === 0}
+                title={streamConnected ? undefined : 'Связь с сервером потеряна'}
+                onClick={applyChanges}
+              >
+                {applying ? 'Применение…' : `Применить${changedCount > 0 ? ` (${changedCount})` : ''}`}
+              </button>
+              {changedCount > 0 && (
+                <button className="signals-cancel" disabled={applying || !streamConnected} onClick={() => resetDrafts(Object.keys(drafts))}>
+                  Сбросить
+                </button>
+              )}
+              {changedCount > 0 && (
+                <button
+                  className="signals-cancel"
+                  disabled={applying || !streamConnected}
+                  title="Сбросить выбранные сигналы к начальным значениям реестра"
+                  onClick={resetSelected}
+                >
+                  ⟲ К начальным ({changedCount})
+                </button>
+              )}
+              <button
+                className="signals-cancel"
+                disabled={applying || !streamConnected}
+                title="Сбросить весь записываемый набор к начальным значениям реестра"
+                onClick={resetAll}
+              >
+                ⟲ Всё к начальным
+              </button>
             </div>
-          </div>
-        ))}
-        {groups.length === 0 && (
-          <div className="signals-table-wrap">
-            <div className="signals-empty">Нет сигналов</div>
-          </div>
-        )}
-      </section>
+            {groups.map(([channel, list]) => (
+              <div className="signals-group" key={channel}>
+                <div className="signals-group-head">
+                  <h3 className="signals-group-title">{channel}</h3>
+                  <span className="signals-count">{list.length}</span>
+                </div>
+                <div className="signals-table-wrap">
+                  <table className="signals-table">
+                    <thead>
+                      <tr>
+                        <th>Шкаф</th>
+                        <th>Модуль</th>
+                        <th>Устройство</th>
+                        <th>Бит/Слово</th>
+                        <th>Сигнал</th>
+                        <th>Тип</th>
+                        <th>Значение</th>
+                        <th>Статус</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((s) => (
+                        <tr key={s.id} className={drafts[s.id] !== undefined ? 'signals-row-changed' : ''}>
+                          <td className="signals-cell-cab">{s.cabinet || '—'}</td>
+                          <td className="mono">{s.module || '—'}</td>
+                          <td className="mono">{s.device || '—'}</td>
+                          <td className="mono">
+                            <span title={s.direction || ''}>{locationCell(s)}</span>
+                          </td>
+                          <td>
+                            <div className="signals-name" title={s.logic || signalAddress(s)}>
+                              {s.name}
+                            </div>
+                            <div className="signals-tag mono" title={signalAddress(s)}>
+                              {signalAddress(s)}
+                            </div>
+                          </td>
+                          <td className="mono">{s.type}</td>
+                          <td>
+                            <SignalValueCell
+                              signal={s}
+                              draft={drafts[s.id] !== undefined ? drafts[s.id] : undefined}
+                              onChange={setDraft}
+                            />
+                          </td>
+                          <td className="signals-statuscell">
+                            {/* §12: источник последнего изменения и владелец. */}
+                            <div className="signals-tag mono" title={s.source ? `Источник: ${s.source}` : 'Источник: —'}>
+                              {s.source || '—'}
+                            </div>
+                            {s.owner && (
+                              <div className="signals-owner" title={`Держит: ${s.owner_id}`}>
+                                🔒 {s.owner}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {list.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="signals-empty">Нет сигналов</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+            {groups.length === 0 && (
+              <div className="signals-table-wrap">
+                <div className="signals-empty">Нет сигналов</div>
+              </div>
+            )}
+          </section>
+        </>
       )}
     </div>
   )

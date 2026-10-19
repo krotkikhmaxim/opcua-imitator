@@ -93,6 +93,71 @@ export interface HeartbeatResponse {
   supported: boolean
 }
 
+// -- пульт машины -------------------------------------------------------------
+
+export interface MachineStateCard {
+  kind: string
+  title: string
+  hint: string
+  selected: boolean
+}
+
+export interface MachineEventCard {
+  kind: string
+  title: string
+  group: 'normal' | 'fault'
+  requires_motion: boolean
+  available: boolean
+  reason: string | null
+  remedy: string | null
+}
+
+export interface MachineObserved {
+  speed: number
+  speed_text: string
+  tp_relay: boolean
+  tp_relay_text: string
+  estop_circuit: boolean
+  estop_circuit_text: string
+  drive_fault: boolean
+  fault_id: number
+  drive_fault_text: string
+  drive_ready: boolean
+}
+
+export interface MachineAction {
+  at: string
+  kind: string
+  text: string
+}
+
+export interface MachineNotice {
+  kind: string
+  text: string
+  repeat_event: string | null
+}
+
+export interface MachineStatus {
+  available: boolean
+  phase: 'idle' | 'running' | 'event' | 'finished'
+  session_id: string | null
+  state: string | null
+  states: MachineStateCard[]
+  events: MachineEventCard[]
+  events_hint: string | null
+  active_event: { kind: string; title: string; since: string; remedy: string | null } | null
+  busy: boolean
+  notice: MachineNotice | null
+  observed: MachineObserved
+  headline: string
+  detail: string
+  last_action: MachineAction | null
+  history: MachineAction[]
+  can_start: boolean
+  can_finish: boolean
+  can_restart: boolean
+}
+
 export interface RecordedMode {
   mode: string
   title: string

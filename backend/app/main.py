@@ -12,6 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.api.diagnostics_routes import router as diagnostics_router, set_diagnostics_journal
+from app.api.machine_routes import (
+    router as machine_router,
+    set_gate as set_machine_gate,
+    set_machine_service,
+    set_registry as set_machine_registry,
+)
 from app.api.playback_routes import router as playback_router, set_playback_service
 from app.api.routes import router, set_services, set_snapshot_hook
 from app.api.scenario_routes import (
@@ -34,6 +40,7 @@ from app.services import signal_types
 from app.services.diagnostics import DiagnosticsJournal
 from app.services.drivers import HeartbeatGate, ValueDriverRegistry, WriteLedger
 from app.services.heartbeat import HeartbeatService
+from app.services.machine import MachineSession
 from app.services.opc_bus import OPCMode, OPCSignalBus
 from app.services.ownership import OwnershipRegistry
 from app.services.persistence import SnapshotStore, registry_fingerprint
@@ -77,6 +84,9 @@ _gate = HeartbeatGate(_registry, lambda: _heartbeat)
 # держит его исключительно; шина проверяет владение при каждой записи.
 _ownership = OwnershipRegistry()
 _bus.set_ownership(_ownership)
+# Пульт машины: держит выбранное состояние и одно активное воздействие.
+# Создаётся ниже (нужен писатель шины); здесь — ссылка для снимка состояния.
+_machine: Optional[MachineSession] = None
 # Диагностика (ТЗ #5, шаг 9 — §14): операции применения и жизненный цикл
 # сценариев в одном ограниченном журнале; наружу — GET /api/diagnostics/events.
 _diagnostics = DiagnosticsJournal()
@@ -95,7 +105,10 @@ _snapshot_store = SnapshotStore(
         else {"value": None, "revision": 0, "source": None, "changed_at": None}
     ),
     interval_s=settings.PERSIST_INTERVAL_S,
-    active=lambda: (engine.running if (engine := get_scenario_engine()) else False),
+    active=lambda: (
+        (engine.running if (engine := get_scenario_engine()) else False)
+        or (_machine.running if _machine else False)
+    ),
 )
 
 # Журнал записей теперь доходит и до загрузки состояний: routes.load_state
@@ -139,6 +152,31 @@ set_gate(_gate)
 _registry.register(
     "scenario", lambda: (engine.running if (engine := get_scenario_engine()) else False)
 )
+
+
+# Пульт машины пишет через ту же шину и тот же журнал, что сценарий: одна
+# дверь записи, один источник в карточках сигналов — «machine:<session>».
+# Реестр драйверов не даёт запустить сценарий/плейбэк во время теста.
+def _machine_writer_factory(session_id: str) -> Any:
+    owner_id = f"machine:{session_id}"
+
+    def writer(signal_id: str, value: Any, when: datetime) -> Any:
+        return _bus.write_value_at(signal_id, value, when, source=owner_id, owner=owner_id)
+
+    return _ledger.wrap(writer)
+
+
+_machine = MachineSession(
+    _machine_writer_factory,
+    _cache.config,
+    read_value=_bus.read_value,
+    ownership=_ownership,
+)
+set_machine_service(_machine)
+set_machine_registry(_registry)
+set_machine_gate(_gate)
+_registry.register("machine", lambda: bool(_machine and _machine.running))
+app.include_router(machine_router)
 # Плейбэк трендов пишет через тот же обёрнутый журналом writer, что и
 # сценарий: одна дверь записи, один журнал для сверки. В реестре он держит
 # шину от запуска до остановки/финала — пауза шину не отпускает.

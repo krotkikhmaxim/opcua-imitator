@@ -4,6 +4,7 @@ import {
   ImportResponse,
   JournalEntry,
   LoadResponse,
+  MachineStatus,
   PlaybackStatus,
   SaveResponse,
   ScenarioDescribe,
@@ -103,6 +104,21 @@ export const scenariosApi = {
   startKinds: (kinds: string[], once = true) =>
     api.post<ScenarioStatus>('/scenarios/start', { kinds, once }).then((r) => r.data),
   stop: () => api.post<ScenarioStatus>('/scenarios/stop').then((r) => r.data),
+  pause: () => api.post<ScenarioStatus>('/scenarios/pause').then((r) => r.data),
+  resume: () => api.post<ScenarioStatus>('/scenarios/resume').then((r) => r.data),
+}
+
+// Пульт машины: выбранное состояние, одно активное воздействие.
+export const machineApi = {
+  status: () => api.get<MachineStatus>('/machine').then((r) => r.data),
+  start: (state: string) =>
+    api.post<MachineStatus>('/machine/start', { state }).then((r) => r.data),
+  event: (kind: string) =>
+    api.post<MachineStatus>('/machine/event', { kind }).then((r) => r.data),
+  remedy: () => api.post<MachineStatus>('/machine/remedy').then((r) => r.data),
+  finish: () => api.post<MachineStatus>('/machine/finish').then((r) => r.data),
+  restart: (state?: string) =>
+    api.post<MachineStatus>('/machine/restart', { state }).then((r) => r.data),
 }
 
 // Прокси станции: read-only белый список. 502 station_unreachable приходит
