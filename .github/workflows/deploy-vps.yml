@@ -1,0 +1,170 @@
+name: deploy-vps
+
+# CI/CD имитатора opcuaimitator.ru.
+#
+# CI — job `test`: pytest бэкенда и сборка фронтенда тем же node, что в
+# Dockerfile. CD — `build` (образ в GHCR) и `deploy` (ограниченный ключ на VPS,
+# /usr/local/bin/asutp-deploy): pull → пересоздание только контейнера имитатора
+# → ожидание healthy и ответа домена через Caddy → откат на прошлый образ при
+# провале здоровья.
+#
+# Ручной запуск: workflow_dispatch без параметров — собрать этот ref;
+# image=ghcr.io/...:sha-xxxxxxxxxxxx — задеплоить готовый образ (откат).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Готовый образ для деплоя (пусто — собрать этот ref заново)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vps-imitator
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPO: ghcr.io/${{ github.repository }}
+  APP_NAME: imitator
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Зависимости
+        run: python -m pip install -r backend/requirements.txt pytest
+      - name: pytest
+        run: cd backend && python -m pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Фронтенд (та же сборка, что в Dockerfile)
+        run: |
+          cd frontend
+          npm ci --no-audit --no-fund
+          npm run build
+          test -f dist/index.html
+
+  build:
+    name: build + push
+    needs: test
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.image == '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Метаданные образа
+        id: meta
+        run: |
+          sha=$(git rev-parse --short=12 HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_REPO}:sha-${sha}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Сборка и публикация
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ env.IMAGE_REPO }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=imitator
+          cache-to: type=gha,scope=imitator,mode=max
+
+  deploy:
+    name: deploy → VPS
+    needs: [test, build]
+    if: |
+      always() &&
+      needs.test.result == 'success' &&
+      (
+        needs.build.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && inputs.image != '')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: production
+      url: https://opcuaimitator.ru/
+    steps:
+      - name: Образ к деплою
+        id: target
+        run: |
+          if [ -n "${{ inputs.image }}" ]; then
+            image="${{ inputs.image }}"
+          else
+            image="${{ needs.build.outputs.image }}"
+          fi
+          case "$image" in
+            ghcr.io/*:*) ;;
+            *) echo "::error::недопустимая ссылка на образ: $image"; exit 1 ;;
+          esac
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Деплой $image"
+
+      - name: Ключ и known_hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Деплой на VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          APP_NAME: ${{ env.APP_NAME }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy -p "$VPS_PORT" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 \
+            "$VPS_USER@$VPS_HOST" \
+            "app=${APP_NAME} image=${{ steps.target.outputs.image }} user=${GHCR_USER}"
+
+      - name: Проверка домена с раннера
+        run: |
+          code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 https://opcuaimitator.ru/ || echo 000)
+          echo "opcuaimitator.ru → $code"
+          case "$code" in
+            200|302) echo "::notice::домен отвечает ($code)" ;;
+            *) echo "::error::домен не отвечает ($code)"; exit 1 ;;
+          esac
