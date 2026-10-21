@@ -165,9 +165,13 @@ class InstanceProxy:
                 await asyncio.wait(pending)
             for task in done:
                 try:
-                    task.exception()
+                    exc = task.exception()
                 except asyncio.CancelledError:
-                    pass
+                    continue
+                if exc is not None:
+                    # Обрыв стороны клиента/дочернего процесса — штатный финал
+                    # ретрансляции, а не ошибка менеджера.
+                    logger.debug("ws relay %s завершён: %r", record.user, exc)
             if not upstream_closed.is_set():
                 await _close_quietly(upstream)
 
