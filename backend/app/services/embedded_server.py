@@ -7,11 +7,14 @@
 """
 
 import asyncio
+import hmac
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from asyncua import Server, ua
+from asyncua.crypto.permission_rules import User, UserRole
+from asyncua.server.user_managers import UserManager
 
 from .signal_types import SignalConfigError, resolve_type
 
@@ -46,13 +49,49 @@ def variant_type_for(type_name: str) -> ua.VariantType:
         ) from None
 
 
+class SingleUserManager(UserManager):
+    """Одна пара логин/пароль; анонимные сессии отклоняются.
+
+    Hook asyncua 2.x — ``get_user``: анонимный токен приходит с
+    ``username=None``/``password=None`` и возвращает ``None`` →
+    ``BadUserAccessDenied`` при активации сессии. Совпадение пары —
+    пользователь с обычной ролью (запись в переменные всё равно закрыта
+    флагами узлов, Режим B). Пароль сравнивается в постоянном времени.
+    """
+
+    def __init__(self, username: str, password: str) -> None:
+        self._username = username
+        self._password = password
+
+    def get_user(self, iserver, username=None, password=None, certificate=None):
+        if username is None or password is None:
+            return None
+        ok_name = hmac.compare_digest(username.encode(), self._username.encode())
+        ok_password = hmac.compare_digest(password.encode(), self._password.encode())
+        if ok_name and ok_password:
+            return User(role=UserRole.User)
+        return None
+
+
 class EmbeddedOpcUaServer:
     """asyncua-сервер, публикующий сигналы ``signals.json`` как переменные."""
 
-    def __init__(self, signal_configs: List[Dict], endpoint: str = DEFAULT_ENDPOINT):
+    def __init__(
+        self,
+        signal_configs: List[Dict],
+        endpoint: str = DEFAULT_ENDPOINT,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ):
         self._configs = signal_configs
         self._endpoint = endpoint
         self._server = Server()
+        # Личные экземпляры (manager-режим) получают пару логин/пароль через
+        # окружение; без неё сервер принимает анонимные сессии, как раньше.
+        if username and password:
+            self._server.iserver.set_user_manager(
+                SingleUserManager(username, password)
+            )
         self._server.set_endpoint(endpoint)
         self._server.set_server_name("OPC UA Imitator (ПМ)")
         self._nodes: Dict[str, Any] = {}

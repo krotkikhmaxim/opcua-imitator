@@ -19,6 +19,18 @@ services:
       SCENARIO_JOURNAL_PATH: /app/scenario_runs/journal.jsonl
       VERIFICATION_DIR: /app/scenario_runs/verifications
       PLAYBACK_UPLOAD_DIR: /app/playback_uploads
+      # Manager-режим (WP-F): процесс держит дефолтный экземпляр и поднимает
+      # по личному дочернему процессу (uvicorn) на пользователя. Пары
+      # OPC_UA_SERVER_USER / OPC_UA_SERVER_PASSWORD сюда не выносить — их
+      # inject'ит менеджер только дочерним процессам, дефолтная полоса
+      # (:4840) остаётся анонимной.
+      IMITATOR_ROLE: ${IMITATOR_ROLE:-manager}
+      IMITATOR_USERS_DATA_DIR: /app/data/users
+      IMITATOR_INTERNAL_TOKEN: ${IMITATOR_INTERNAL_TOKEN:-}
+      IMITATOR_EDGE_TOKEN: ${IMITATOR_EDGE_TOKEN:-}
+      IMITATOR_MAX_INSTANCES: ${IMITATOR_MAX_INSTANCES:-8}
+      IMITATOR_IDLE_TIMEOUT_S: ${IMITATOR_IDLE_TIMEOUT_S:-1800}
+      IMITATOR_PUBLIC_OPC_HOST: opcua-imitator
       STATION_URL: ${STATION_URL:-http://asutp-station:8080}
       STATION_PROJECT_ID: ${STATION_PROJECT_ID:-}
       STATION_TIMEOUT_S: ${STATION_TIMEOUT_S:-5}

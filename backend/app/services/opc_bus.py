@@ -75,7 +75,14 @@ class OPCSignalBus:
         if self.mode == OPCMode.SERVER:
             from app.services.embedded_server import EmbeddedOpcUaServer
 
-            self._embedded = EmbeddedOpcUaServer(self.cache.config, endpoint=self.server_endpoint)
+            self._embedded = EmbeddedOpcUaServer(
+                self.cache.config,
+                endpoint=self.server_endpoint,
+                # Учётные данные личного экземпляра (manager-режим): анонимные
+                # сессии отклоняются. Не заданы — анонимный доступ, как раньше.
+                username=os.getenv("OPC_UA_SERVER_USER") or None,
+                password=os.getenv("OPC_UA_SERVER_PASSWORD") or None,
+            )
             await self._embedded.start()
             return
         if self.mode == OPCMode.REAL:

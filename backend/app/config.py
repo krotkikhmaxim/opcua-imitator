@@ -52,6 +52,38 @@ class Settings:
         "SCHEMATIC_BRIDGE_PATH",
         str(Path(__file__).resolve().parent.parent / "configs" / "schematic_bridge.json"),
     )
+    # Режим роли процесса (WP-F): single — сегодняшнее поведение (один
+    # экземпляр), manager — тот же процесс держит дефолтный экземпляр
+    # (:8000/:4840) и раскладывает аутентифицированных пользователей по их
+    # собственным дочерним процессам (uvicorn на 127.0.0.1:8101+i, OPC UA на
+    # 0.0.0.0:4841+i).
+    IMITATOR_ROLE: str = os.getenv("IMITATOR_ROLE", "single")
+    # Корень состояния per-user экземпляров; дочерний процесс получает пути
+    # состояния, производные от него (<root>/<user>/…).
+    IMITATOR_USERS_DATA_DIR: str = os.getenv("IMITATOR_USERS_DATA_DIR", "/app/data/users")
+    # Внутренний API менеджера (GET /internal/instances): без совпадения
+    # заголовка X-Internal-Token — отказ; пустое значение = API закрыт.
+    IMITATOR_INTERNAL_TOKEN: str = os.getenv("IMITATOR_INTERNAL_TOKEN", "")
+    # Аттестация edge-заголовков: если задан, Remote-* доверяются только
+    # вместе с X-Edge-Token, равным этому значению (иначе — оператор).
+    IMITATOR_EDGE_TOKEN: str = os.getenv("IMITATOR_EDGE_TOKEN", "")
+    # Ёмкость менеджера: максимум одновременных дочерних экземпляров; сверх —
+    # 503 с кодом instance_limit.
+    IMITATOR_MAX_INSTANCES: int = int(os.getenv("IMITATOR_MAX_INSTANCES", "8"))
+    # Простаивающий (без запросов через прокси) экземпляр останавливается
+    # через этот интервал; повторный запрос поднимает его заново — снимок
+    # состояния восстанавливается при старте дочернего процесса.
+    IMITATOR_IDLE_TIMEOUT_S: float = float(os.getenv("IMITATOR_IDLE_TIMEOUT_S", "1800"))
+    # Базы портов дочерних экземпляров: HTTP 8101+i, OPC UA 4841+i.
+    IMITATOR_INSTANCE_HTTP_BASE_PORT: int = int(
+        os.getenv("IMITATOR_INSTANCE_HTTP_BASE_PORT", "8101")
+    )
+    IMITATOR_INSTANCE_OPC_BASE_PORT: int = int(
+        os.getenv("IMITATOR_INSTANCE_OPC_BASE_PORT", "4841")
+    )
+    # Хост, под которым станция видит OPC UA-порты дочерних экземпляров
+    # (алиас контейнера в сети asutp-telemetry); идёт в /internal/instances.
+    IMITATOR_PUBLIC_OPC_HOST: str = os.getenv("IMITATOR_PUBLIC_OPC_HOST", "opcua-imitator")
     TIME_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_VERSION: str = "1.0"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024
