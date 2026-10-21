@@ -8,6 +8,7 @@
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -260,3 +261,26 @@ def test_attestation_gates_elevated_writer(monkeypatch, tmp_path):
     )
     assert allowed.status_code == 200
     assert allowed.json()["lane"] == "child"
+
+
+def test_capacity_overflow_is_503_instance_limit(monkeypatch, tmp_path):
+    """Ёмкость исчерпана → 503 {"code": "instance_limit"} на личной полосе."""
+    registry = InstanceRegistry(
+        users_root=tmp_path / "users",
+        max_instances=1,
+        spawn_enabled=False,
+    )
+    registry._records["busy"] = replace(RECORD, user="busy", slot=0)
+    captured = {}
+
+    def handler(request):
+        captured["hit"] = True
+        return Response(200, json={"lane": "child"})
+
+    proxy = InstanceProxy(client=MockTransport(handler))
+    app = ManagerDispatchMiddleware(Delegate(), registry, proxy)
+    with TestClient(app) as client:
+        response = client.get("/api/signals", headers=_engineer())
+    assert response.status_code == 503
+    assert response.json() == {"code": "instance_limit"}
+    assert "hit" not in captured  # до дочернего не дошло
