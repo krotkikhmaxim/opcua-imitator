@@ -44,6 +44,19 @@ def test_normalize_user_strips_and_casefolds():
     assert roles.normalize_user("") == ""
 
 
+def test_normalize_user_refuses_dot_segments_and_strips_backslash():
+    """Имя становится компонентой пути личного состояния: «.» и «..» — не имена
+    (пустой результат → личности нет → дефолтная полоса), обратный слэш вырезается
+    как на станции; точки внутри имени (a.b) остаются."""
+    assert roles.normalize_user("..") == ""
+    assert roles.normalize_user(" .. ") == ""
+    assert roles.normalize_user(".>.") == ""  # служебные чистятся до «..»
+    assert roles.normalize_user("...") == "..."  # не сегмент пути — допустимое имя
+    assert roles.normalize_user("a.b") == "a.b"
+    assert roles.normalize_user("a\\b") == "ab"
+    assert roles.identity_of({"Remote-User": ".."}) is None
+
+
 def test_parse_groups_separators_and_case():
     assert roles.parse_groups("Engineers; Admins") == {"engineers", "admins"}
     assert roles.parse_groups("") == set()
@@ -261,6 +274,32 @@ def test_attestation_gates_elevated_writer(monkeypatch, tmp_path):
     )
     assert allowed.status_code == 200
     assert allowed.json()["lane"] == "child"
+
+
+def test_dot_segment_identity_serves_default_lane(monkeypatch, tmp_path):
+    """Remote-User «..» не становится личностью (выход из корня пользователей
+    вырезан на нормализации): запрос обслуживает дефолтная полоса, личный
+    экземпляр не поднимается — ни записи в реестре, ни каталогов нигде."""
+    registry = InstanceRegistry(users_root=tmp_path / "users", spawn_enabled=False)
+    registry._records["ivan"] = RECORD
+    captured = {}
+
+    def handler(request):
+        captured["hit"] = True
+        return Response(200, json={"lane": "child"})
+
+    proxy = InstanceProxy(client=MockTransport(handler))
+    app = ManagerDispatchMiddleware(Delegate(), registry, proxy)
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/signals",
+            headers={"Remote-User": "..", "Remote-Groups": "engineers"},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"lane": "default", "path": "/api/signals"}
+    assert registry.record_of("..") is None  # записи «..» нет; «ivan» не тронут
+    assert "hit" not in captured  # до дочернего экземпляра не дошло
+    assert not (tmp_path / "users").exists()  # каталог состояния не создавался
 
 
 def test_capacity_overflow_is_503_instance_limit(monkeypatch, tmp_path):

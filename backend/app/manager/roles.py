@@ -19,7 +19,7 @@ from typing import Mapping, Optional, Tuple
 
 # Нормализация пользователя повторяет станцию: casefold, обрезка служебных
 # символов заголовка, потолок 64. Неизвестно/пусто → пользователь не выделен.
-_FORBIDDEN_CHARS = "\"'/,;<>[]{}|"
+_FORBIDDEN_CHARS = "\"'\\/,;<>[]{}|"
 _MAX_USER_LEN = 64
 
 
@@ -30,12 +30,19 @@ class Role(str, Enum):
 
 
 def normalize_user(raw: str) -> str:
-    """Заголовок Remote-User → безопасное имя экземпляра (правила станции)."""
+    """Заголовок Remote-User → безопасное имя экземпляра (правила станции).
+
+    На станции имя — ключ записи, здесь оно становится компонентой пути
+    личного состояния (``<users_root>/<user>/…``), поэтому имя, которое после
+    чистки — «.» или «..», не имя вовсе: пустой результат, пользователь не
+    выделен, личный экземпляр не поднимается (выход из корня пользователей
+    обрезан на нормализации, а не на доверии к краю).
+    """
     cleaned = raw.strip()
     for ch in _FORBIDDEN_CHARS:
         cleaned = cleaned.replace(ch, "")
-    cleaned = cleaned.strip().casefold()
-    return cleaned[:_MAX_USER_LEN]
+    cleaned = cleaned.strip().casefold()[:_MAX_USER_LEN]
+    return "" if cleaned in (".", "..") else cleaned
 
 
 def parse_groups(raw: str) -> set:
