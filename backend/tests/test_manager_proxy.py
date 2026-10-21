@@ -1,7 +1,9 @@
 """Прокси менеджера (WP-F): HTTP-проход и ретрансляция WebSocket.
 
 HTTP: метод, путь, query, тело и заголовки проходят как есть (hop-by-hop и
-Host — нет), ответ дочернего экземпляра — со своим статусом и заголовками.
+Host — нет; не-ASCII значения отбрасываются — край присылает Remote-Name
+любого алфавита, а httpx шлёт только ASCII), ответ дочернего экземпляра — со
+своим статусом и заголовками.
 WS: снимок и дельты идут от дочернего экземпляра дословно (seq не
 перенумеровывается), клиентские тексты доходят до него.
 """
@@ -100,6 +102,64 @@ def test_http_passthrough_method_path_query_body_headers():
     assert captured["custom"] == "1"
     assert captured["hop_by_hop"] is None  # не переслан
     assert captured["host"] != "opcuaimitator.ru"  # Host переписан на дочерний
+
+    asyncio.run(proxy.aclose())
+
+
+def test_non_ascii_header_dropped_others_relayed():
+    """Не-ASCII заголовок от края (Remote-Name с кириллицей) не роняет релей.
+
+    httpx кодирует значения заголовков в ASCII; значение произвольного
+    алфавита прежде падало с UnicodeEncodeError и запрос получал 500.
+    Такие значения отбрасываются целиком (не искажаются), остальные доходят.
+    """
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> Response:
+        captured["remote_name"] = request.headers.get("remote-name")
+        captured["remote_user"] = request.headers.get("remote-user")
+        captured["custom"] = request.headers.get("x-custom")
+        return Response(200, content=b"{}")
+
+    proxy = InstanceProxy(client=MockTransport(handler))
+    app = RelayApp(proxy, RECORD)
+
+    # Скоуп строится вручную: TestClient не даст отправить не-ASCII значение,
+    # а именно его вставляет край (Caddy копирует Remote-Name от Authelia).
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "https",
+        "path": "/",
+        "raw_path": b"/",
+        "query_string": b"",
+        "root_path": "",
+        "client": ("10.0.0.1", 12345),
+        "server": ("opcuaimitator.ru", 443),
+        "headers": [
+            (b"remote-name", "Максим Кротких".encode("utf-8")),
+            (b"remote-user", b"admin"),
+            (b"x-custom", b"keep-me"),
+        ],
+    }
+    messages = []
+    body_received = b""
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    asyncio.run(app(scope, receive, send))
+
+    assert messages[0]["type"] == "http.response.start"
+    assert messages[0]["status"] == 200
+    assert captured["remote_name"] is None  # не-ASCII отброшен, не исказён
+    assert captured["remote_user"] == "admin"  # личность от края дошла
+    assert captured["custom"] == "keep-me"
 
     asyncio.run(proxy.aclose())
 
