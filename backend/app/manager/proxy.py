@@ -42,7 +42,15 @@ def _request_headers(scope: dict) -> List[Tuple[str, str]]:
         name = raw_name.decode("latin-1")
         if name.lower() in _HOP_BY_HOP or name.lower() == "host":
             continue
-        headers.append((name, raw_value.decode("latin-1")))
+        try:
+            headers.append((name, raw_value.decode("ascii")))
+        except UnicodeDecodeError:
+            # Значение не ASCII (край пересылает Remote-Name — display name
+            # произвольного алфавита): httpx при отправке упадёт с
+            # UnicodeEncodeError и запрос получит 500. Ребёнок читает только
+            # Remote-User/Remote-Groups — они ASCII по построению; остальное
+            # честно отбрасывается, а не передаётся искажённым.
+            logger.warning("прокси: заголовок %s отброшен (значение не ASCII)", name)
     return headers
 
 
