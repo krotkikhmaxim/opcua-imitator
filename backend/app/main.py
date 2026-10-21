@@ -574,3 +574,12 @@ def _serve_frontend(app: FastAPI) -> None:
 
 
 _serve_frontend(app)
+
+# Manager-режим (WP-F): тот же процесс держит дефолтный экземпляр и добавляет
+# маршруты менеджера — по личному экземпляру на аутентифицированного
+# пользователя. Импорт ленивый и только в роли manager: single-режим не имеет
+# этого пакета в пути импорта, его поведение не меняется ни на бит.
+if settings.IMITATOR_ROLE == "manager":
+    from app.manager.routes import install_manager
+
+    install_manager(app)
