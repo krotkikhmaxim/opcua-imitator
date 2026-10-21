@@ -50,6 +50,9 @@ EXPOSE 8000 4840
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
   CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/', timeout=4).status==200 else 1)"
 
-# Один процесс, без --reload и без нескольких воркеров:
-# встроенный OPC UA-сервер и состояние должны иметь одного владельца.
+# Один владелец на экземпляр, без --reload и без нескольких воркеров:
+# у каждого встроенного OPC UA-сервера и его состояния ровно один процесс.
+# В контейнере это процесс-менеджер (IMITATOR_ROLE=manager в compose.prod):
+# он держит дефолтный экземпляр и поднимает по личному дочернему uvicorn-процессу
+# на пользователя (127.0.0.1:8101+i / 0.0.0.0:4841+i, состояние в /app/data/users).
 CMD ["uvicorn", "--app-dir", "backend", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

@@ -29,6 +29,30 @@ Deploy-ключ на `153.80.185.111` не имеет шелла: `authorized_ke
 ssh srv170637 "app=imitator image=$(sed -n 1p /opt/asutp/state/deploy/imitator.image)"
 ```
 
+## Режим manager (WP-F)
+
+`compose.prod.yml` запускает контейнер в `IMITATOR_ROLE=manager`: процесс
+держит дефолтный экземпляр (:8000/:4840, анонимный — станция не
+перенастраивается) и поднимает по личному дочернему uvicorn-процессу на
+аутентифицированного пользователя (HTTP `127.0.0.1:8101+i`, OPC UA
+`0.0.0.0:4841+i`, состояние в `/opt/asutp/state/imitator/data/users/`).
+Схема ответа `GET /internal/instances` — `imitator.instances.v1`,
+заморожена (см. `docs/server_state.md` §12).
+
+Значения берутся из `deploy/.env`:
+
+| Переменная | Назначение |
+| --- | --- |
+| `IMITATOR_ROLE` | `manager` (прод) / `single` — прежнее поведение одним процессом |
+| `IMITATOR_INTERNAL_TOKEN` | токен `X-Internal-Token` внутреннего API (`/internal/instances`); пусто — API закрыт |
+| `IMITATOR_EDGE_TOKEN` | при заданном значении `Remote-*` доверяются только вместе с `X-Edge-Token`; иначе заголовки trusted (за Caddy+Authelia так и есть) |
+| `IMITATOR_MAX_INSTANCES` | ёмкость дочерних экземпляров (8; сверх — `503 instance_limit`) |
+| `IMITATOR_IDLE_TIMEOUT_S` | останов простаивающего экземпляра (1800 с) |
+
+`OPC_UA_SERVER_USER` / `OPC_UA_SERVER_PASSWORD` в `.env` контейнера не
+задавать: их inject'ит менеджер только дочерним процессам, дефолтная
+полоса должна остаться анонимной.
+
 ## Секреты репозитория
 
 `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY` (приватный ed25519 деплоя),
