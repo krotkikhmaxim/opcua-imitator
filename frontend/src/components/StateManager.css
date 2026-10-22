@@ -244,14 +244,44 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-@media (max-width: 600px) {
+/* Мобильный режим: та же точка, что и у остального мобильного слоя (768px) —
+   панель состояний в одну колонку, кнопки на всю ширину и ≥44px по высоте. */
+@media (max-width: 768px) {
   .sm-toolbar {
     flex-direction: column;
   }
+
   .sm-btn {
     width: 100%;
+    min-height: 44px;
   }
+
+  .sm-btn-small {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .sm-card-actions,
+  .sm-modal-actions {
+    flex-direction: column;
+  }
+
+  .sm-card-actions .sm-btn,
+  .sm-modal-actions .sm-btn {
+    width: 100%;
+  }
+
+  .sm-grid {
+    grid-template-columns: 1fr;
+  }
+
   .sm-modal {
     padding: 16px;
+    max-width: 100%;
+  }
+
+  .sm-field input,
+  .sm-field textarea {
+    min-height: 44px;
   }
 }

@@ -421,7 +421,7 @@ export default function App() {
                   <h3 className="signals-group-title">{channel}</h3>
                   <span className="signals-count">{list.length}</span>
                 </div>
-                <div className="signals-table-wrap">
+                <div className="signals-table-wrap table-scroll">
                   <table className="signals-table">
                     <thead>
                       <tr>
