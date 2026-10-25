@@ -108,161 +108,13 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
 
   const stateCards = status?.states ?? []
 
+  // Порядок блоков: «Что происходит сейчас?» сверху — это сводка по фактическим
+  // сигналам, ниже выбор состояния и события. Владелец смотрит на неё первой.
   return (
     <section className="mc">
-      <div className="mc-step">
+      <div className="mc-step mc-step-now">
         <div className="mc-step-head">
           <span className="mc-step-num">1</span>
-          <h2>В каком состоянии запустить машину?</h2>
-        </div>
-
-        <div className="mc-states">
-          {stateCards.map((state) => {
-            const on = selected === state.kind
-            return (
-              <button
-                key={state.kind}
-                type="button"
-                className={`mc-state${on ? ' mc-state-on' : ''}`}
-                onClick={() => {
-                  selectedTouched.current = true
-                  setSelected(state.kind)
-                }}
-              >
-                <span className="mc-state-title">{state.title}</span>
-                <span className="mc-state-hint">{state.hint}</span>
-                {on && <span className="mc-state-check">✓ Выбрано</span>}
-              </button>
-            )
-          })}
-        </div>
-
-        <button
-          type="button"
-          className="mc-start"
-          disabled={!status?.can_start || locked}
-          onClick={() => run('start', () => machineApi.start(selected), 'Ошибка запуска машины')}
-        >
-          {busy === 'start' ? 'Запуск…' : 'Запустить машину в выбранном состоянии'}
-        </button>
-        {status && !status.can_start && (
-          <p className="mc-hint">
-            Тест уже идёт. Новое состояние применится после «Начать заново» или «Завершить тест».
-          </p>
-        )}
-        {selectionPending && (
-          <p className="mc-hint mc-hint-warn">
-            Выбрано «{selectedCard?.title ?? selected}»: применится после «Начать заново».
-          </p>
-        )}
-      </div>
-
-      <div className="mc-step">
-        <div className="mc-step-head">
-          <span className="mc-step-num">2</span>
-          <h2>Что должно произойти?</h2>
-        </div>
-        <p className="mc-step-sub">Выберите событие после запуска машины.</p>
-
-        {status?.events_hint && <p className="mc-note">{status.events_hint}</p>}
-
-        {active && (
-          <div className="mc-active">
-            <div>
-              <div className="mc-active-title">{active.title}</div>
-              <div className="mc-active-since">с {clock(active.since)}</div>
-            </div>
-            <button
-              type="button"
-              className="mc-remedy"
-              disabled={locked || phase === 'finished'}
-              onClick={() => run('remedy', () => machineApi.remedy(), 'Ошибка устранения воздействия')}
-            >
-              {busy === 'remedy' ? 'Устранение…' : active.remedy || 'Устранить'}
-            </button>
-          </div>
-        )}
-
-        {notice && (
-          <div className="mc-notice">
-            <span>{notice.text}</span>
-            {notice.repeat_event && (
-              <button
-                type="button"
-                className="mc-repeat"
-                disabled={locked || phase === 'finished'}
-                onClick={() =>
-                  run(
-                    'event',
-                    () => machineApi.event(notice.repeat_event as string),
-                    'Ошибка повторного разрыва',
-                  )
-                }
-              >
-                Повторить разрыв
-              </button>
-            )}
-          </div>
-        )}
-
-        {normalEvents.length > 0 && (
-          <div className="mc-group">
-            <div className="mc-group-title">Штатное действие</div>
-            <div className="mc-buttons">
-              {normalEvents.map((event) => (
-                <button
-                  key={event.kind}
-                  type="button"
-                  className="mc-event mc-event-normal"
-                  disabled={!event.available || locked}
-                  title={event.reason ?? ''}
-                  onClick={() =>
-                    run(
-                      'event',
-                      () => machineApi.event(event.kind),
-                      `Ошибка события «${event.title}»`,
-                    )
-                  }
-                >
-                  {event.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {faultEvents.length > 0 && (
-          <div className="mc-group">
-            <div className="mc-group-title">Аварийные события</div>
-            <div className="mc-buttons">
-              {faultEvents.map((event) => (
-                <button
-                  key={event.kind}
-                  type="button"
-                  className="mc-event mc-event-fault"
-                  disabled={!event.available || locked}
-                  title={event.reason ?? ''}
-                  onClick={() =>
-                    run(
-                      'event',
-                      () => machineApi.event(event.kind),
-                      `Ошибка события «${event.title}»`,
-                    )
-                  }
-                >
-                  {event.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {error && <div className="mc-error">{error}</div>}
-      </div>
-
-      <div className="mc-step">
-        <div className="mc-step-head">
-          <span className="mc-step-num">3</span>
           <h2>Что происходит сейчас?</h2>
         </div>
 
@@ -376,6 +228,156 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
             <p className="mc-hint">Heartbeat недоступен: сервер не публикует OPC UA.</p>
           )}
         </details>
+      </div>
+
+      <div className="mc-step">
+        <div className="mc-step-head">
+          <span className="mc-step-num">2</span>
+          <h2>В каком состоянии запустить машину?</h2>
+        </div>
+
+        <div className="mc-states">
+          {stateCards.map((state) => {
+            const on = selected === state.kind
+            return (
+              <button
+                key={state.kind}
+                type="button"
+                className={`mc-state${on ? ' mc-state-on' : ''}`}
+                onClick={() => {
+                  selectedTouched.current = true
+                  setSelected(state.kind)
+                }}
+              >
+                <span className="mc-state-title">{state.title}</span>
+                <span className="mc-state-hint">{state.hint}</span>
+                {on && <span className="mc-state-check">✓ Выбрано</span>}
+              </button>
+            )
+          })}
+        </div>
+
+        <button
+          type="button"
+          className="mc-start"
+          disabled={!status?.can_start || locked}
+          onClick={() => run('start', () => machineApi.start(selected), 'Ошибка запуска машины')}
+        >
+          {busy === 'start' ? 'Запуск…' : 'Запустить машину в выбранном состоянии'}
+        </button>
+        {status && !status.can_start && (
+          <p className="mc-hint">
+            Тест уже идёт. Новое состояние применится после «Начать заново» или «Завершить тест».
+          </p>
+        )}
+        {selectionPending && (
+          <p className="mc-hint mc-hint-warn">
+            Выбрано «{selectedCard?.title ?? selected}»: применится после «Начать заново».
+          </p>
+        )}
+      </div>
+
+      <div className="mc-step">
+        <div className="mc-step-head">
+          <span className="mc-step-num">3</span>
+          <h2>Что должно произойти?</h2>
+        </div>
+        <p className="mc-step-sub">Выберите событие после запуска машины.</p>
+
+        {status?.events_hint && <p className="mc-note">{status.events_hint}</p>}
+
+        {active && (
+          <div className="mc-active">
+            <div>
+              <div className="mc-active-title">{active.title}</div>
+              <div className="mc-active-since">с {clock(active.since)}</div>
+            </div>
+            <button
+              type="button"
+              className="mc-remedy"
+              disabled={locked || phase === 'finished'}
+              onClick={() => run('remedy', () => machineApi.remedy(), 'Ошибка устранения воздействия')}
+            >
+              {busy === 'remedy' ? 'Устранение…' : active.remedy || 'Устранить'}
+            </button>
+          </div>
+        )}
+
+        {notice && (
+          <div className="mc-notice">
+            <span>{notice.text}</span>
+            {notice.repeat_event && (
+              <button
+                type="button"
+                className="mc-repeat"
+                disabled={locked || phase === 'finished'}
+                onClick={() =>
+                  run(
+                    'event',
+                    () => machineApi.event(notice.repeat_event as string),
+                    'Ошибка повторного разрыва',
+                  )
+                }
+              >
+                Повторить разрыв
+              </button>
+            )}
+          </div>
+        )}
+
+        {normalEvents.length > 0 && (
+          <div className="mc-group">
+            <div className="mc-group-title">Штатное действие</div>
+            <div className="mc-buttons">
+              {normalEvents.map((event) => (
+                <button
+                  key={event.kind}
+                  type="button"
+                  className="mc-event mc-event-normal"
+                  disabled={!event.available || locked}
+                  title={event.reason ?? ''}
+                  onClick={() =>
+                    run(
+                      'event',
+                      () => machineApi.event(event.kind),
+                      `Ошибка события «${event.title}»`,
+                    )
+                  }
+                >
+                  {event.title}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {faultEvents.length > 0 && (
+          <div className="mc-group">
+            <div className="mc-group-title">Аварийные события</div>
+            <div className="mc-buttons">
+              {faultEvents.map((event) => (
+                <button
+                  key={event.kind}
+                  type="button"
+                  className="mc-event mc-event-fault"
+                  disabled={!event.available || locked}
+                  title={event.reason ?? ''}
+                  onClick={() =>
+                    run(
+                      'event',
+                      () => machineApi.event(event.kind),
+                      `Ошибка события «${event.title}»`,
+                    )
+                  }
+                >
+                  {event.title}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {error && <div className="mc-error">{error}</div>}
       </div>
     </section>
   )
