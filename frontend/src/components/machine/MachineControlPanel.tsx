@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { heartbeatApi, machineApi } from '../../api'
-import { HeartbeatResponse, MachineStatus } from '../../types'
+import { machineApi } from '../../api'
+import { MachineStatus } from '../../types'
 import './MachineControlPanel.css'
 
 const POLL_MS = 1500
@@ -30,8 +30,6 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
   const [selected, setSelected] = useState<string>('moving')
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<string | null>(null)
-  const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
-  const [heartbeatBusy, setHeartbeatBusy] = useState(false)
   const selectedTouched = useRef(false)
 
   const apply = useCallback((next: MachineStatus) => {
@@ -54,13 +52,6 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
     return () => clearInterval(interval)
   }, [refresh])
 
-  useEffect(() => {
-    heartbeatApi
-      .get()
-      .then(setHeartbeat)
-      .catch(() => setHeartbeat({ enabled: false, supported: false }))
-  }, [])
-
   const run = useCallback(
     async (kind: Busy, action: () => Promise<MachineStatus>, failText: string) => {
       setBusy(kind)
@@ -76,23 +67,6 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
     },
     [apply, refresh],
   )
-
-  const toggleHeartbeat = useCallback(async () => {
-    if (!heartbeat || heartbeatBusy) return
-    setHeartbeatBusy(true)
-    try {
-      setHeartbeat(await heartbeatApi.set(!heartbeat.enabled))
-    } catch (e: any) {
-      setError(errorText(e, 'Ошибка переключения heartbeat'))
-      try {
-        setHeartbeat(await heartbeatApi.get())
-      } catch {
-        /* оставляем последнее известное */
-      }
-    } finally {
-      setHeartbeatBusy(false)
-    }
-  }, [heartbeat, heartbeatBusy])
 
   const phase = status?.phase ?? 'idle'
   const running = phase === 'running' || phase === 'event'
@@ -205,28 +179,19 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
 
         <details className="mc-fold">
           <summary>Дополнительные настройки</summary>
-          {heartbeat && heartbeat.supported ? (
-            <div className="mc-settings-row">
-              <div>
-                <div className="mc-settings-title">Heartbeat</div>
-                <p className="mc-hint">
-                  Раз в секунду перезаписывает значения и обновляет SourceTimestamp, чтобы
-                  станция видела «свежие» данные. На время теста отключается сам: иначе
-                  метки времени воздействий перестают быть точными.
-                </p>
-              </div>
-              <button
-                type="button"
-                className={`mc-heartbeat${heartbeat.enabled ? ' mc-heartbeat-on' : ''}`}
-                disabled={heartbeatBusy || locked}
-                onClick={toggleHeartbeat}
-              >
-                {heartbeatBusy ? '…' : heartbeat.enabled ? 'Включён' : 'Выключен'}
-              </button>
+          <div className="mc-settings-row">
+            <div>
+              <div className="mc-settings-title">Heartbeat</div>
+              <p className="mc-hint">
+                Раз в секунду перезаписывает значения и обновляет SourceTimestamp, чтобы
+                станция видела «свежие» данные. На время теста отключается сам: иначе
+                метки времени воздействий перестают быть точными.
+              </p>
+              <p className="mc-hint">
+                Включается и выключается кнопкой записи в правом верхнем углу страницы.
+              </p>
             </div>
-          ) : (
-            <p className="mc-hint">Heartbeat недоступен: сервер не публикует OPC UA.</p>
-          )}
+          </div>
         </details>
       </div>
 

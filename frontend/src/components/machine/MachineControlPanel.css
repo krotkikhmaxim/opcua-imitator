@@ -439,24 +439,6 @@
   font-weight: 600;
 }
 
-.mc-heartbeat {
-  flex: none;
-  padding: 9px 14px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #374151;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.mc-heartbeat-on {
-  color: #065f46;
-  background: #ecfdf5;
-  border-color: #10b981;
-}
-
 /* Мобильный режим пульта: сводка сверху, карточки состояний и наблюдаемые
    значения — в одну колонку, шаги друг под другом, главная кнопка запуска на
    всю ширину, все тап-цели ≥44px (главная — ≥48px). */
@@ -532,10 +514,5 @@
 
   .mc-settings-row {
     flex-direction: column;
-  }
-
-  .mc-heartbeat {
-    width: 100%;
-    min-height: 44px;
   }
 }
