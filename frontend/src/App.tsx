@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MachineControlPanel from './components/machine/MachineControlPanel'
 import StateManager from './components/StateManager'
 import { useSignalStream, type OwnerEntry, type SignalEntry } from './components/mnemo/useSignalStream'
-import { signalsApi } from './api'
-import { Signal, WriteBatchResponse } from './types'
+import { heartbeatApi, signalsApi } from './api'
+import { HeartbeatResponse, Signal, WriteBatchResponse } from './types'
 import './App.css'
 
 interface SignalsResponse {
@@ -86,7 +86,52 @@ export default function App() {
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({})
   const [applying, setApplying] = useState(false)
   const [tab, setTab] = useState<Tab>('machine')
+  const [heartbeat, setHeartbeat] = useState<HeartbeatResponse | null>(null)
+  const [heartbeatBusy, setHeartbeatBusy] = useState(false)
+  const [heartbeatError, setHeartbeatError] = useState<string | null>(null)
   const statusTimer = useRef<number | null>(null)
+
+  // Запись (heartbeat) — общая для обеих вкладок ручка в шапке. Опрашиваем
+  // состояние, а не держим локально: на время теста шлюз драйверов гасит
+  // запись сам и возвращает после, поэтому кнопка обязана показывать факт.
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      heartbeatApi
+        .get()
+        .then((res) => {
+          if (alive) setHeartbeat(res)
+        })
+        .catch(() => {
+          if (alive) setHeartbeat({ enabled: false, supported: false })
+        })
+    }
+    load()
+    const interval = setInterval(load, 2000)
+    return () => {
+      alive = false
+      clearInterval(interval)
+    }
+  }, [])
+
+  const toggleHeartbeat = useCallback(async () => {
+    if (!heartbeat || heartbeatBusy || !heartbeat.supported) return
+    setHeartbeatBusy(true)
+    setHeartbeatError(null)
+    try {
+      setHeartbeat(await heartbeatApi.set(!heartbeat.enabled))
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail
+      setHeartbeatError(typeof detail === 'string' ? detail : 'Ошибка переключения записи')
+      try {
+        setHeartbeat(await heartbeatApi.get())
+      } catch {
+        /* оставляем последнее известное состояние */
+      }
+    } finally {
+      setHeartbeatBusy(false)
+    }
+  }, [heartbeat, heartbeatBusy])
 
   const refreshSignals = useCallback(async () => {
     try {
@@ -332,6 +377,33 @@ export default function App() {
                 драйвер: {activeDrivers.join(', ')}
               </span>
             )}
+            {heartbeatError && (
+              <span className="heartbeat-error" title={heartbeatError}>
+                {heartbeatError}
+              </span>
+            )}
+            <button
+              type="button"
+              className={`heartbeat-toggle${heartbeat?.enabled ? ' heartbeat-toggle-on' : ''}`}
+              aria-pressed={Boolean(heartbeat?.enabled)}
+              disabled={heartbeatBusy || !heartbeat?.supported}
+              title={
+                !heartbeat
+                  ? 'Состояние записи ещё не получено'
+                  : !heartbeat.supported
+                    ? 'Запись недоступна: сервер не публикует OPC UA'
+                    : heartbeat.enabled
+                      ? 'Запись включена: раз в секунду обновляется SourceTimestamp'
+                      : 'Запись выключена: значения не перезаписываются'
+              }
+              onClick={toggleHeartbeat}
+            >
+              {heartbeatBusy
+                ? '…'
+                : heartbeat?.enabled
+                  ? 'Выключить запись'
+                  : 'Включить запись'}
+            </button>
           </div>
         </div>
       </header>

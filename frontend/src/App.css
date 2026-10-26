@@ -15,21 +15,24 @@
   gap: 12px;
 }
 
+/* Кнопка записи (heartbeat) в правом верхнем углу: состояние читается цветом —
+   зелёная = запись идёт, серая = запись выключена. */
 .heartbeat-toggle {
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
   border: 1px solid #d1d5db;
   border-radius: 8px;
-  background: #ffffff;
-  color: #374151;
+  background: #f3f4f6;
+  color: #6b7280;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .heartbeat-toggle:hover:not(:disabled) {
   border-color: #9ca3af;
+  color: #374151;
 }
 
 .heartbeat-toggle:disabled {
@@ -41,6 +44,22 @@
   background: #ecfdf5;
   border-color: #10b981;
   color: #065f46;
+}
+
+.heartbeat-toggle-on:hover:not(:disabled) {
+  background: #d1fae5;
+  border-color: #059669;
+  color: #065f46;
+}
+
+.heartbeat-error {
+  max-width: 220px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .app-header h1 {
@@ -592,6 +611,18 @@ button.tl-badge:hover {
 
   .app-header-row {
     flex-wrap: wrap;
+  }
+
+  /* Кнопка записи — остаётся в правом верхнем углу, но не уже 44px по высоте */
+  .app-header-badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: 100%;
+  }
+
+  .heartbeat-toggle {
+    min-height: 44px;
+    padding: 8px 16px;
   }
 
   .app-header h1 {
