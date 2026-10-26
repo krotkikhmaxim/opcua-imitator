@@ -426,19 +426,6 @@
   flex: none;
 }
 
-.mc-settings-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 8px;
-}
-
-.mc-settings-title {
-  font-size: 14.5px;
-  font-weight: 600;
-}
-
 /* Мобильный режим пульта: сводка сверху, карточки состояний и наблюдаемые
    значения — в одну колонку, шаги друг под другом, главная кнопка запуска на
    всю ширину, все тап-цели ≥44px (главная — ≥48px). */
@@ -510,9 +497,5 @@
     display: list-item;
     padding: 12px 0;
     line-height: 1.3;
-  }
-
-  .mc-settings-row {
-    flex-direction: column;
   }
 }

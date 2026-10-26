@@ -176,23 +176,6 @@ export default function MachineControlPanel({ onShowSignals }: Props) {
             <p className="mc-hint">Событий пока нет.</p>
           )}
         </details>
-
-        <details className="mc-fold">
-          <summary>Дополнительные настройки</summary>
-          <div className="mc-settings-row">
-            <div>
-              <div className="mc-settings-title">Heartbeat</div>
-              <p className="mc-hint">
-                Раз в секунду перезаписывает значения и обновляет SourceTimestamp, чтобы
-                станция видела «свежие» данные. На время теста отключается сам: иначе
-                метки времени воздействий перестают быть точными.
-              </p>
-              <p className="mc-hint">
-                Включается и выключается кнопкой записи в правом верхнем углу страницы.
-              </p>
-            </div>
-          </div>
-        </details>
       </div>
 
       <div className="mc-step">
